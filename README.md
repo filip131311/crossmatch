@@ -13,12 +13,18 @@ idioms), renders a branded side-by-side mp4 with callouts for every confirmed di
 an HTML report.
 
 ```bash
-npm install && npm run build
+npm install -g crossmatch          # or run every command through: npx crossmatch <command>
+
 crossmatch init      # write crossmatch.config.json (app paths, bundle ids, devices, limits)
 crossmatch doctor    # check argent, ffmpeg (libx264), adb, simctl, claude
 crossmatch setup     # boot both devices, install both apps fresh
 crossmatch compare   # run every flow, judge, render videos, write crossmatch-out/report/index.html
 ```
+
+The exploration itself is done by an agent: install the bundled skill into your project with
+`cp -r node_modules/crossmatch/skills/crossmatch .claude/skills/` (or point Claude Code at
+`skills/crossmatch/SKILL.md`) and ask it to explore both apps and write flows; `crossmatch compare`
+does the rest.
 
 Requirements: macOS, Node 20+, Xcode + Android SDK, ffmpeg with libx264, Argent 0.25+ on PATH,
 and the Claude Code CLI for the judge (optional).

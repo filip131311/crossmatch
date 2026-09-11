@@ -44,11 +44,11 @@ class Screen {
     // keyboard detection: a cluster of single-character keys in the lower half of the screen
     const keys = all.filter((n) => n.text.length === 1 && n.frame.y > 0.45);
     let keyboardTop = keys.length >= 12 ? Math.min(...keys.map((n) => n.frame.y)) : undefined;
-    // Android exposes no letter keys but an IME toolbar (as one aggregated node and/or its buttons)
-    const toolbar = all.find((n) => n.frame.y > 0.45 && isImeToolbar(norm(n.text)));
-    if (toolbar && (keyboardTop === undefined || toolbar.frame.y < keyboardTop)) keyboardTop = toolbar.frame.y;
-    this.keyboard = keyboardTop !== undefined;
-    const bars = all.filter((n) => PREDICTION_BAR.test(n.text) && n.frame.width > 0.3 && n.frame.height < 0.08 && n.frame.y > 0.4);
+    // Android exposes no letter keys, but a floating IME toolbar (one aggregated node whose buttons
+    // are nested inside it, anywhere on screen): the toolbar and everything inside it is chrome
+    const toolbars = all.filter((n) => isImeToolbar(norm(n.text)));
+    this.keyboard = keyboardTop !== undefined || toolbars.length > 0;
+    const bars = [...toolbars, ...all.filter((n) => PREDICTION_BAR.test(n.text) && n.frame.width > 0.3 && n.frame.height < 0.08 && n.frame.y > 0.4)];
     this.nodes = all.filter((n) => !this.isChrome(n, keyboardTop, bars));
   }
 
@@ -68,7 +68,7 @@ class Screen {
       if (n.role === "image") return true; // iOS keys are images
       if (!n.id && !isInteractive(n)) return true;
     }
-    if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction bar items
+    if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction bar / IME toolbar items
     return isImeToolbar(t);
   }
 

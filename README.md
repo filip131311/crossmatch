@@ -14,6 +14,11 @@ letting coding agents drive iOS simulators and Android emulators.
 4. A judge decides which differences matter and which are platform idioms.
 5. Each confirmed difference becomes a side-by-side video with callouts, and an HTML report.
 
+**Demo** — a difference crossmatch found and documented in the bundled Dog Tinder apps: iOS shows a
+match dialog after liking, Android does not.
+
+<p align="center"><img src="assets/demo-match-alert.gif" alt="Side-by-side video: iOS shows an It's a match alert after liking, Android silently advances" width="720"></p>
+
 ```bash
 npx crossmatch init      # config (apps auto-detected), the agent skill, Argent — all in one
 crossmatch doctor        # check the toolchain

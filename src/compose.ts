@@ -10,7 +10,7 @@ import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import type { LoadedConfig } from "./config.js";
 import { ffmpegBin } from "./ffmpeg.js";
 import { resolveSelector } from "./describe.js";
-import { runDirFor } from "./lockstep.js";
+import { ffprobeSize, runDirFor } from "./lockstep.js";
 import type { Brand, Frame, Pointer, RunOutput, Side, Verdict } from "./types.js";
 
 const FONT = "-apple-system, 'Helvetica Neue', Helvetica, Arial, Roboto, sans-serif";
@@ -207,7 +207,7 @@ function drawCaption(L: Layout, brand: Brand, text: string): Buffer {
   return c.toBuffer("image/png");
 }
 
-interface ResolvedPointer { side: Side; frame: Frame; label: string; fromMs: number; ghost: boolean }
+interface ResolvedPointer { side: Side; frame: Frame; label: string; fromMs: number; ghost: boolean; stepIndex: number }
 
 function resolvePointers(output: RunOutput, v: Verdict, log: (s: string) => void): ResolvedPointer[] {
   const out: ResolvedPointer[] = [];
@@ -236,14 +236,14 @@ function resolvePointers(output: RunOutput, v: Verdict, log: (s: string) => void
       log(`  pointer "${p.label}" (${p.side}, step ${p.stepIndex + 1}) not drawn: ${JSON.stringify(p.element)} is not in that step's tree`);
       continue;
     }
-    out.push({ side: p.side, frame, label: p.label, fromMs: step[p.side].startMs, ghost: false });
+    out.push({ side: p.side, frame, label: p.label, fromMs: step[p.side].startMs, ghost: false, stepIndex: p.stepIndex });
   }
   // A missing control gets a ghost marker at the same place on the other side.
   if (v.category === "missing-feature" && out.length && out.every((p) => p.side === out[0].side)) {
     const src = out[0];
     const other: Side = src.side === "ios" ? "android" : "ios";
-    const step = output.run.steps[v.pointers[0].stepIndex];
-    out.push({ side: other, frame: src.frame, label: `Not on ${other === "ios" ? "iOS" : "Android"}`, fromMs: step ? step[other].startMs : src.fromMs, ghost: true });
+    const step = output.run.steps[src.stepIndex];
+    out.push({ side: other, frame: src.frame, label: `Not on ${other === "ios" ? "iOS" : "Android"}`, fromMs: step ? step[other].startMs : src.fromMs, ghost: true, stepIndex: src.stepIndex });
   }
   return out;
 }
@@ -278,7 +278,13 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
 function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void) {
   const steps = output.run.steps;
   const [a, b] = v.stepRange;
-  const duration = (side: Side) => output.run.video[side].durationMs || Number.POSITIVE_INFINITY;
+  for (const side of ["ios", "android"] as Side[]) {
+    if (output.run.video[side].durationMs) continue;
+    const probed = ffprobeSize(path.join(runDir, output.run.video[side].file));
+    if (!probed.durationMs) throw new Error(`cannot determine the length of ${output.run.video[side].file}`);
+    output.run.video[side] = { ...output.run.video[side], ...probed };
+  }
+  const duration = (side: Side) => output.run.video[side].durationMs;
   // clamp to the recording: a flow can outlive the recording's time limit
   const clipStart = (side: Side) => Math.max(0, Math.min(steps[a][side].startMs - LEAD_MS, duration(side) - 1500));
   const clipEnd = (side: Side) => Math.min(duration(side), Math.max(steps[b][side].endMs, steps[a][side].startMs) + TAIL_MS);

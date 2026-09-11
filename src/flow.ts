@@ -56,6 +56,10 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
   if (keys.length !== 1) throw new Error(`${ctx}: step must have exactly one directive, got ${keys.join(", ")}`);
   const key = keys[0];
   const v = o[key];
+  const obj = (what: string): Record<string, unknown> => {
+    if (!v || typeof v !== "object") throw new Error(`${ctx}: ${what} needs a map, got ${JSON.stringify(v)}`);
+    return v as Record<string, unknown>;
+  };
   switch (key) {
     case "launch": {
       if (typeof v === "string") return { kind: "launch", bundleId: v };
@@ -93,25 +97,26 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
         if (!DIRS.includes(v)) throw new Error(`${ctx}: swipe direction must be up|down|left|right`);
         return { kind: "swipe", direction: v as any };
       }
-      const s = v as Record<string, unknown>;
+      const s = obj("swipe:");
       for (const k of Object.keys(s)) if (!["direction", "from", "duration"].includes(k)) throw new Error(`${ctx}: swipe "${k}:" is not supported by natively (use direction, from, duration)`);
       if (!DIRS.includes(String(s.direction))) throw new Error(`${ctx}: swipe needs direction up|down|left|right`);
       return { kind: "swipe", direction: s.direction as any, from: s.from ? toSelector(s.from, ctx) : undefined, duration: typeof s.duration === "number" ? s.duration : undefined };
     }
     case "type": {
-      const t = v as any;
+      const t = obj("type:") as any;
+      if (t.text === undefined) throw new Error(`${ctx}: type: needs text`);
       return { kind: "type", into: toSelector(t.into, ctx), text: String(t.text), submit: t.submit };
     }
     case "scroll-to": {
-      const t = v as any;
+      const t = obj("scroll-to:") as any;
       return { kind: "scroll-to", target: toSelector(t.target ?? t, ctx), direction: t.direction, maxSwipes: t.maxSwipes };
     }
     case "await": {
-      const a = v as Record<string, unknown>;
+      const a = obj("await:");
       return { kind: "await", condition: toCondition(a, ctx), timeout: typeof a.timeout === "number" ? a.timeout : undefined };
     }
     case "assert":
-      return { kind: "assert", condition: toCondition(v as Record<string, unknown>, ctx) };
+      return { kind: "assert", condition: toCondition(obj("assert:"), ctx) };
     case "wait":
       return { kind: "wait", ms: Number(v) };
     case "echo":

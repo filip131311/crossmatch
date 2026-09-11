@@ -50,12 +50,14 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
   for (const it of [...items]) {
     const k = it.verdict.key;
     if (!k || it.verdict.severity === "ignore") continue;
-    const [category, sigs] = k.split("|");
+    const cut = k.indexOf("|");
+    const category = k.slice(0, cut);
+    const sigs = k.slice(cut + 1);
     const parts = sigs ? sigs.split(KEY_SEP).filter(Boolean).map((sg) => `${category}|${sg}`) : [];
     const owner = parts.map((pt) => claimed.get(pt)).find((o) => o && o !== it);
     if (owner) {
-      // keep the entry that has a video as the primary card
-      if (!owner.verdict.video && it.verdict.video) {
+      // the primary card is the highest severity (items are sorted by severity), then the one with a video
+      if (!owner.verdict.video && it.verdict.video && ORDER.indexOf(it.verdict.severity) <= ORDER.indexOf(owner.verdict.severity)) {
         items.splice(items.indexOf(it), 1);
         items.splice(items.indexOf(owner), 1, it);
         it.alsoIn.push(owner, ...owner.alsoIn);

@@ -14,18 +14,25 @@ const INTERACTIVE = new Set(["button", "textfield", "switch", "checkbox", "slide
 const IDIOM_TEXT = new Set(["back", "navigate up", "chevron", "tab bar"]);
 const IDIOM_IDS = new Set(["backbutton"]);
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\s️]+$/u;
-const SYMBOL_ID = /^[a-z0-9]+(\.[a-z0-9]+)+$/i; // SF Symbol names leak into the iOS tree as ids
+/** SF Symbol names leak into the iOS tree as ids of icon artefacts (flame.fill, gearshape.fill, heart.fill). */
+const SYMBOL_ID = /^[a-z0-9]+(\.[a-z0-9]+)*\.(fill|circle|square|slash|badge|rectangle|triangle|bubble|left|right|up|down|\d)(\.[a-z0-9]+)*$/i;
 const ARTEFACT_TEXT = /^(vertical|horizontal) scroll bar|^\d+ pages?$|^page \d+ of \d+$/i;
 const KEYBOARD_WORDS = /^(shift|emoji|return|dictate|dictation|delete|space|next keyboard|typing predictions?|predictions?|show emoji keyboard|more stylus options|got it|hold and drag.*|switch input method|hide keyboard|keyboard)$/i;
 /** Extra words that only count as keyboard chrome inside an aggregated IME toolbar label. */
 const IME_ACTION_WORDS = /^(done|go|search|send|next|previous)$/i;
-const PREDICTION_BAR = /^typing predictions?$|^predictions?$|^suggestions?$|^candidates?$/i;
+const PREDICTION_BAR = /^typing predictions?$|^predictions?$/i;
 const STATE_FLAGS = ["disabled", "checked", "selected"];
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 const isInteractive = (n: UiNode) => INTERACTIVE.has(n.role) || n.flags.includes("clickable");
 const contains = (outer: UiNode, inner: UiNode) =>
   inner.frame.x >= outer.frame.x - 0.01 && inner.frame.y >= outer.frame.y - 0.01 && inner.frame.x + inner.frame.width <= outer.frame.x + outer.frame.width + 0.01 && inner.frame.y + inner.frame.height <= outer.frame.y + outer.frame.height + 0.01;
+
+/** An IME toolbar exposed as one aggregated label ("Delete / Done / Show emoji keyboard / …"). */
+function isImeToolbar(t: string): boolean {
+  const parts = t.split(/\s*\/\s*/);
+  return parts.length > 1 && parts.every((p) => KEYBOARD_WORDS.test(p) || IME_ACTION_WORDS.test(p) || p.length === 1);
+}
 
 /** Per-tree view with the platform chrome and keyboard removed. */
 class Screen {
@@ -34,34 +41,48 @@ class Screen {
     const all = meaningfulNodes(tree);
     // keyboard detection: a cluster of single-character keys in the lower half of the screen
     const keys = all.filter((n) => n.text.length === 1 && n.frame.y > 0.45);
-    const keyboardTop = keys.length >= 12 ? Math.min(...keys.map((n) => n.frame.y)) - 0.08 : undefined;
-    const bars = all.filter((n) => PREDICTION_BAR.test(n.text) && n.frame.width > 0.3);
+    let keyboardTop = keys.length >= 12 ? Math.min(...keys.map((n) => n.frame.y)) : undefined;
+    // Android exposes no letter keys but an IME toolbar (as one aggregated node and/or its buttons)
+    const toolbar = all.find((n) => n.frame.y > 0.45 && isImeToolbar(norm(n.text)));
+    if (toolbar && (keyboardTop === undefined || toolbar.frame.y < keyboardTop)) keyboardTop = toolbar.frame.y;
+    this.keyboard = keyboardTop !== undefined;
+    const bars = all.filter((n) => PREDICTION_BAR.test(n.text) && n.frame.width > 0.3 && n.frame.height < 0.08 && n.frame.y > 0.4);
     this.nodes = all.filter((n) => !this.isChrome(n, keyboardTop, bars));
   }
+
+  /** True when a software keyboard was detected on this screen. */
+  readonly keyboard: boolean;
 
   private isChrome(n: UiNode, keyboardTop: number | undefined, bars: UiNode[]): boolean {
     if (n.frame.y + n.frame.height <= 0.06 && !n.id) return true; // status bar
     if (n.id && (SYMBOL_ID.test(n.id) || IDIOM_IDS.has(n.id.toLowerCase()))) return true;
     const t = norm(n.text);
     if (IDIOM_TEXT.has(t) || ARTEFACT_TEXT.test(t) || PREDICTION_BAR.test(t)) return true;
-    if (keyboardTop !== undefined && n.frame.y >= keyboardTop) return true; // anything on the keyboard
-    if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction / suggestion bar items
-    const parts = t.split(/\s*\/\s*/);
-    if (parts.length > 1 && parts.every((p) => KEYBOARD_WORDS.test(p) || IME_ACTION_WORDS.test(p) || p.length === 1)) return true; // IME toolbar
-    return false;
+    if (keyboardTop !== undefined && n.frame.y >= keyboardTop - 0.01) {
+      // on the keyboard: keys, keyboard words and anonymous decorations are chrome; the app's own
+      // input bar (an id, or an interactive control with a real label) is not
+      if (t.length <= 1 || KEYBOARD_WORDS.test(t) || IME_ACTION_WORDS.test(t)) return true;
+      if (!n.id && !isInteractive(n)) return true;
+    }
+    if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction bar items
+    return isImeToolbar(t);
   }
 
   /** Text fragments on screen → the first node that shows them. Aggregated labels are split. */
   atoms(): Map<string, UiNode> {
     const out = new Map<string, UiNode>();
-    for (const n of this.nodes) for (const f of fragments(n.text)) if (!out.has(f)) out.set(f, n);
+    for (const n of this.nodes) for (const f of fragments(n.text, !this.keyboard)) if (!out.has(f)) out.set(f, n);
     return out;
   }
 
+  /** Nodes by id. SwiftUI often puts one identifier on both a cell and its inner control: nested twins count once. */
   byId(): Map<string, { n: number; node: UiNode }> {
     const out = new Map<string, { n: number; node: UiNode }>();
+    const seen: UiNode[] = [];
     for (const n of this.nodes) {
       if (!n.id) continue;
+      if (seen.some((m) => m.id === n.id && (contains(m, n) || contains(n, m)))) continue;
+      seen.push(n);
       const e = out.get(n.id);
       if (e) e.n++;
       else out.set(n.id, { n: 1, node: n });
@@ -80,16 +101,22 @@ class Screen {
   }
 }
 
-/** Split an aggregated accessibility label into its fragments: " / " (Android), newlines, then ", ". */
-export function fragments(text: string): string[] {
+/**
+ * Split an aggregated accessibility label into its fragments: " / " (Android), newlines, then ", ".
+ * Single characters are kept only when asked (they are keyboard keys when a keyboard is up).
+ */
+export function fragments(text: string, keepShort = true): string[] {
   const coarse = text.split(/\s*\/\s*|\n/).map(norm).filter(Boolean);
   const fine = coarse.flatMap((c) => c.split(/,\s+/).map(norm).filter(Boolean));
-  return [...new Set([norm(text), ...coarse, ...fine])].filter((t) => t && t.length > 1 && !EMOJI_ONLY.test(t) && !IDIOM_TEXT.has(t));
+  return [...new Set([norm(text), ...coarse, ...fine])].filter((t) => t && (keepShort || t.length > 1) && !EMOJI_ONLY.test(t) && !IDIOM_TEXT.has(t));
 }
 
+/** Same visible content: equal after normalisation, or equal sets of fragments (separators differ per platform). */
 function sameContent(a: string, b: string): boolean {
+  if (norm(a) === norm(b)) return true;
   const fa = new Set(fragments(a).filter((t) => !t.includes(",") && !t.includes("/")));
   const fb = new Set(fragments(b).filter((t) => !t.includes(",") && !t.includes("/")));
+  if (fa.size <= 1 && fb.size <= 1) return false; // plain labels that differ
   if (fa.size !== fb.size) return false;
   for (const t of fa) if (!fb.has(t)) return false;
   return true;
@@ -130,7 +157,7 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
   // one screen reacted to the action and the other did not (pixels, independent of the trees)
   const pa = step.ios.screenChange;
   const pb = step.android.screenChange;
-  const acted = !["await", "assert", "wait", "echo", "launch"].includes(step.directive.kind);
+  const acted = !["await", "assert", "wait", "echo", "launch", "when", "tool"].includes(step.directive.kind);
   if (acted && pa !== undefined && pb !== undefined) {
     // calibrated on real captures: an empty chat bubble is ~0.24% of the screen, a blinking caret ~0.02%
     const moved = (x: number) => x >= 0.0015;
@@ -221,7 +248,9 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
   for (const [prefix, na] of ga) {
     const nb = gb.get(prefix);
     if (!nb || na.length < 2 || nb.length < 2) continue;
-    const order = (ns: UiNode[]) => [...ns].sort((p, q) => p.frame.y - q.frame.y || p.frame.x - q.frame.x).map((n) => n.id!);
+    // reading order with a tolerance: segments of one control sit on one row even if their frames differ by a few px
+    const row = (n: UiNode) => Math.round(n.frame.y / 0.03);
+    const order = (ns: UiNode[]) => [...ns].sort((p, q) => row(p) - row(q) || p.frame.x - q.frame.x).map((n) => n.id!);
     const oa = order(na);
     const ob = order(nb);
     if (oa.length === ob.length && oa.join() !== ob.join() && [...oa].sort().join() === [...ob].sort().join()) {
@@ -233,8 +262,10 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
   const restA = [...xa].filter(([t]) => !xb.has(t) && !comparedText.has(t));
   const restB = [...xb].filter(([t]) => !xa.has(t) && !comparedText.has(t));
   if (restA.length || restB.length) {
-    const keyA = restA.length ? elementKey(restA[0][1]) : "";
-    const keyB = restB.length ? elementKey(restB[0][1]) : "";
+    // keyed by the element that shows the text; an id-less element also carries the texts themselves
+    const keyOf = (rest: Array<[string, UiNode]>) => (rest.length ? (rest[0][1].id ? elementKey(rest[0][1]) : `${elementKey(rest[0][1])}{${rest.map(([t]) => t).sort().join("|")}}`) : "");
+    const keyA = keyOf(restA);
+    const keyB = keyOf(restB);
     const pointers: Pointer[] = [];
     if (restA.length) pointers.push(pointerFor("ios", i, restA[0][1], `Only on iOS: "${restA[0][1].text}"`));
     if (restB.length) pointers.push(pointerFor("android", i, restB[0][1], `Only on Android: "${restB[0][1].text}"`));

@@ -121,6 +121,7 @@ export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig
   // after the first frame is captured, and that latency differs per platform.
   for (const side of ["ios", "android"] as Side[]) {
     const delta = sessions[side].timelineOffset(video[side].durationMs);
+    if (sessions[side].truncated(video[side].durationMs)) opts.log(`Warning: the ${side} recording is shorter than the run (time limit ${config.recording.timeLimitSeconds}s reached?); step times were not rebased`);
     if (!delta) continue;
     for (const st of steps) {
       if (st[side].status === "skip" && st[side].startMs === 0 && st[side].endMs === 0) continue;

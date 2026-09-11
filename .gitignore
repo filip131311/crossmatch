@@ -9,3 +9,6 @@ fixtures/dogtinder-android/app/build/
 fixtures/dogtinder-android/.gradle/
 fixtures/dogtinder-android/local.properties
 .DS_Store
+natively-out-trial/
+flows-trial/
+natively-trial.config.json

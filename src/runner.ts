@@ -90,8 +90,14 @@ export class SideSession {
    * Milliseconds to add to this side's step times so they sit on the video timeline: the video
    * runs from (stop time - duration) whereas step times were measured from when the start call returned.
    */
+  /** True when the video is clearly shorter than the time recorded (the time limit cut it). */
+  truncated(durationMs: number): boolean {
+    if (!this.recordingStart || !this.stopWallClock || !durationMs) return false;
+    return this.stopWallClock - this.recordingStart - durationMs > 1500;
+  }
+
   timelineOffset(durationMs: number): number {
-    if (!this.recordingStart || !this.stopWallClock || !durationMs) return 0;
+    if (!this.recordingStart || !this.stopWallClock || !durationMs || this.truncated(durationMs)) return 0;
     const videoStart = this.stopWallClock - durationMs;
     const delta = this.recordingStart - videoStart;
     // ignore implausible values (a trimmed or truncated video)
@@ -204,7 +210,7 @@ export class SideSession {
           last = `${describeSelector(c.selector)} is still visible ("${visible[0].text}")`;
           break;
         case "text": {
-          const first = visible[0] ?? matches[0];
+          const first = resolveSelector(tree, c.selector) ?? visible[0] ?? matches[0];
           const holds = first && (c.match === "equals" ? first.text.toLowerCase() === c.expected.toLowerCase() : c.match === "matches" ? new RegExp(c.expected).test(first.text) : first.text.toLowerCase().includes(c.expected.toLowerCase()));
           if (holds) return { ok: true, node: first };
           last = first ? `${describeSelector(c.selector)} reads "${first.text}", expected "${c.expected}"` : `no element matches ${describeSelector(c.selector)}`;

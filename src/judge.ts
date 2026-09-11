@@ -18,8 +18,7 @@ export const KEY_SEP = "\u001f";
 
 /** Identity of a difference independent of the flow it was found in: category + the elements it points at. */
 export function verdictKey(category: Category, cands: Candidate[]): string {
-  // outcome signatures carry a step index and never match across flows; keep the stable ones
-  const sigs = cands.map((c) => c.signature).filter((s) => !s.startsWith("outcome:"));
+  const sigs = cands.map((c) => c.signature);
   return `${category}|${[...new Set(sigs)].sort().join(KEY_SEP)}`;
 }
 
@@ -41,8 +40,8 @@ export function claudeAvailable(): boolean {
 }
 
 /**
- * Import verdicts written by a human or an agent. Accepts `stepIndex` (0-based) or `step` (1-based)
- * on pointers and `stepRange` in either base (values > number of steps are treated as 1-based).
+ * Import verdicts written by a human or an agent, in the on-disk format: `stepRange` and pointer
+ * `stepIndex` are 0-based (as in verdicts.json); a pointer may use `step` (1-based) instead.
  */
 export function importVerdicts(items: unknown, output: RunOutput): Verdict[] {
   if (!Array.isArray(items)) throw new Error("verdicts file must contain a JSON array");
@@ -52,8 +51,7 @@ export function importVerdicts(items: unknown, output: RunOutput): Verdict[] {
     const v = { ...(it as Record<string, any>) };
     if (Array.isArray(v.stepRange) && v.stepRange.length === 2) {
       const [a, b] = v.stepRange.map(Number);
-      // sanitise() expects 1-based; a 0-based range that fits is shifted
-      if (b < n && (v.stepIndexBase === 0 || a === 0)) v.stepRange = [a + 1, b + 1];
+      v.stepRange = [a + 1, b + 1]; // sanitise() expects the judge prompt's 1-based form
     }
     if (Array.isArray(v.pointers)) v.pointers = v.pointers.map((p: any) => (p && typeof p === "object" && p.step === undefined && Number.isFinite(+p.stepIndex) ? { ...p, step: +p.stepIndex + 1 } : p));
     return v;
@@ -90,7 +88,7 @@ function buildBrief(loaded: LoadedConfig, output: RunOutput): string {
   const { run, candidates } = output;
   const runDir = runDirFor(loaded, run.flow.name);
   const steps = run.steps
-    .map((s) => `${String(s.index + 1).padStart(2)}. ${s.label}  [ios: ${s.ios.status}${s.ios.reason ? ` – ${s.ios.reason}` : ""}; android: ${s.android.status}${s.android.reason ? ` – ${s.android.reason}` : ""}]`)
+    .map((s) => `${String(s.index + 1).padStart(2)}. ${s.label}  [ios: ${s.ios.status}${s.ios.reason ? ` – ${s.ios.reason}` : ""}${s.ios.captureError ? " – NOT COMPARED (capture failed)" : ""}; android: ${s.android.status}${s.android.reason ? ` – ${s.android.reason}` : ""}${s.android.captureError ? " – NOT COMPARED (capture failed)" : ""}]`)
     .join("\n");
   const shotSteps = new Set<number>();
   const cands = candidates
@@ -210,8 +208,9 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
     // an unrecognised category or severity must not turn into a reported difference
     const catRaw = String(v.category ?? "").toLowerCase().replace(/[\s_]+/g, "-");
     const category: Category = CATEGORIES.includes(catRaw as Category) ? (catRaw as Category) : "noise";
-    const sevRaw = String(v.severity ?? "").toLowerCase();
-    let severity: Severity = SEVERITIES.includes(sevRaw as Severity) ? (sevRaw as Severity) : "ignore";
+    const sevRaw = String(v.severity ?? "").toLowerCase().trim();
+    // a real category with an unrecognised severity stays a difference; only the category can dismiss it
+    let severity: Severity = SEVERITIES.includes(sevRaw as Severity) ? (sevRaw as Severity) : category === "noise" ? "ignore" : "medium";
     if (category === "noise" || category === "platform-idiom") severity = "ignore";
     const cands = candidateIds.map((id: string) => byId.get(id)!);
     const allSteps = cands.flatMap((c) => c.steps);

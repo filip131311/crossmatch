@@ -211,14 +211,9 @@ export async function connectArgent(opts: { prefer?: "http" | "cli" } = {}): Pro
       const c = new HttpClient(rec);
       if (await c.ping()) return (cached = c);
     }
-    // no server: ask the CLI to start one (it stays in the foreground, so detach it), then look again
-    try {
-      const isJs = bin.endsWith(".js") || bin.endsWith(".cjs");
-      const child = spawn(isJs ? process.execPath : bin, isJs ? [bin, "server", "start"] : ["server", "start"], { detached: true, stdio: "ignore", env: process.env });
-      child.unref();
-    } catch {
-      // fall through to the CLI transport
-    }
+    // no server answering: ask the CLI to start one in the background, then look again
+    const started = await runCli(bin, ["server", "start", "--detach"], { timeoutMs: 30_000 }).catch(() => undefined);
+    if (started && started.code !== 0) console.error(`argent server start --detach: ${(started.stderr || started.stdout).trim().slice(0, 300)}`);
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       for (const rec of readServerRecords()) {
@@ -227,6 +222,7 @@ export async function connectArgent(opts: { prefer?: "http" | "cli" } = {}): Pro
       }
     }
   }
+  if (prefer === "http") console.error("No Argent tool-server answered; using the slower `argent run` CLI transport for every call.");
   return (cached = new CliClient(bin));
 }
 

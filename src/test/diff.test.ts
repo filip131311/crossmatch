@@ -88,3 +88,15 @@ test("the same changing value is one candidate across steps, keyed by its elemen
   assert.equal(c.length, 1, c.map((x) => x.summary).join("\n"));
   assert.deepEqual(c[0].steps, [0, 1, 2]);
 });
+
+test("segments on one row with slightly different frame tops are not an order difference; Android IME toolbar buttons are chrome", () => {
+  const segs = (side: "ios" | "android") => {
+    const mk = (id: string, x: number, y: number) => (side === "ios" ? `  AXButton "${id}" id="show-me-${id}"  (${x}, ${y}, 0.1, 0.03)` : `  View "${id}" id="show-me-${id}" [clickable]  (${x}, ${y}, 0.1, 0.03)`);
+    return side === "ios" ? ios([mk("all", 0.8, 0.349), mk("puppies", 0.45, 0.356), mk("adults", 0.66, 0.356)].join("\n")) : and([mk("puppies", 0.45, 0.35), mk("adults", 0.66, 0.35), mk("all", 0.8, 0.35)].join("\n"));
+  };
+  const r = run([{ ios: { status: "pass", startMs: 0, endMs: 0, tree: segs("ios") }, android: { status: "pass", startMs: 0, endMs: 0, tree: segs("android") } }]);
+  assert.deepEqual(diffRun(r).map((c) => c.summary), []);
+  const ime = and(`  Button "Send" id="send-button" [clickable]  (0.8, 0.6, 0.1, 0.04)\n  View "Delete / Done / Show emoji keyboard / More stylus options"  (0.0, 0.9, 1.0, 0.05)\n  Button "Delete" [clickable]  (0.0, 0.9, 0.2, 0.05)\n  Button "Done" [clickable]  (0.2, 0.9, 0.2, 0.05)\n  Button "Got it" [clickable]  (0.5, 0.95, 0.2, 0.04)`);
+  const r2 = run([{ ios: { status: "pass", startMs: 0, endMs: 0, tree: ios(`  AXButton "Send" id="send-button"  (0.8, 0.6, 0.1, 0.04)`) }, android: { status: "pass", startMs: 0, endMs: 0, tree: ime } }]);
+  assert.deepEqual(diffRun(r2).map((c) => c.summary), []);
+});

@@ -1,56 +1,73 @@
 /**
- * The CrossMatch mark: a soft, glossy 3×3 tile board in the style of a casual match-3 game, with the
- * two diagonals lit up as matched gems (a cross), plus a rounded wordmark. Rendered as SVG so the
- * HTML report and the video composer share one definition.
+ * The CrossMatch mark: two glossy candy phones in the style of a casual match-3 game, an iOS one
+ * (blue, Dynamic Island pill, home bar) and an Android one (green, punch-hole camera, three-button
+ * bar) leaning toward each other under a match sparkle, plus a rounded wordmark. Rendered as SVG
+ * so the HTML report and the video composer share one definition. No platform trademarks are used.
  */
 import type { Brand } from "./types.js";
 
-const GEMS = ["#FF6FA5", "#FFD166", "#4DE1B0", "#5AA9FF", "#FF8F5C"];
+const IOS = ["#5AA9FF", "#2F7BE8"];
+const ANDROID = ["#4DE1B0", "#19B984"];
+const SPARK = "#FFD166";
+const PINK = "#FF6FA5";
 
-/** The board only (square), `size` px. */
-export function logoBadgeSvg(brand: Brand, size = 64, id = "cm"): string {
-  const s = size / 64; // design units are a 64 px board
-  const tile = 14 * s;
-  const gap = 3 * s;
-  const margin = (64 * s - 3 * tile - 2 * gap) / 2;
-  const lit: Record<string, string> = { "0,0": GEMS[0], "2,2": GEMS[1], "0,2": GEMS[2], "2,0": GEMS[3], "1,1": GEMS[4] };
-  let tiles = "";
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) {
-      const x = margin + c * (tile + gap);
-      const y = margin + r * (tile + gap);
-      const gem = lit[`${r},${c}`];
-      if (gem) {
-        tiles += `<rect x="${x}" y="${y}" width="${tile}" height="${tile}" rx="${4 * s}" fill="${gem}" filter="url(#${id}-gemShadow)"/>`;
-        tiles += `<ellipse cx="${x + tile * 0.4}" cy="${y + tile * 0.32}" rx="${tile * 0.3}" ry="${tile * 0.18}" fill="#fff" opacity="0.55"/>`;
-      } else {
-        tiles += `<rect x="${x}" y="${y}" width="${tile}" height="${tile}" rx="${4 * s}" fill="#fff" opacity="0.18"/>`;
-      }
-    }
+function phone(id: string, x: number, y: number, w: number, h: number, kind: "ios" | "android", rot: number): string {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const top =
+    kind === "ios"
+      ? `<rect x="${cx - w * 0.22}" y="${y + h * 0.09}" width="${w * 0.44}" height="${h * 0.075}" rx="${h * 0.04}" fill="#14121F"/>`
+      : `<circle cx="${cx}" cy="${y + h * 0.115}" r="${w * 0.07}" fill="#14121F"/>`;
+  const bottom =
+    kind === "ios"
+      ? `<rect x="${cx - w * 0.2}" y="${y + h * 0.9}" width="${w * 0.4}" height="${h * 0.025}" rx="2" fill="#fff" opacity="0.85"/>`
+      : `<g fill="#fff" opacity="0.85"><rect x="${cx - w * 0.26}" y="${y + h * 0.895}" width="${w * 0.1}" height="${h * 0.03}" rx="1.5"/><rect x="${cx - w * 0.05}" y="${y + h * 0.895}" width="${w * 0.1}" height="${h * 0.03}" rx="1.5"/><rect x="${cx + w * 0.16}" y="${y + h * 0.895}" width="${w * 0.1}" height="${h * 0.03}" rx="1.5"/></g>`;
+  return `<g transform="rotate(${rot} ${cx} ${cy})" filter="url(#${id}-shadow)">
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${w * 0.22}" fill="url(#${id}-${kind})"/>
+    <rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${h / 2}" rx="${w * 0.2}" fill="#fff" opacity="0.14"/>
+    <ellipse cx="${x + w * 0.42}" cy="${y + h * 0.16}" rx="${w * 0.3}" ry="${h * 0.09}" fill="#fff" opacity="0.5"/>
+    ${top}${bottom}
+  </g>`;
+}
+
+function star(cx: number, cy: number, r: number, fill: string, id: string): string {
+  let d = "";
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI / 4) * i - Math.PI / 2;
+    const rr = i % 2 ? r * 0.42 : r;
+    d += `${i ? "L" : "M"}${(cx + rr * Math.cos(a)).toFixed(2)},${(cy + rr * Math.sin(a)).toFixed(2)}`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  return `<path d="${d}Z" fill="${fill}" filter="url(#${id}-shadow)"/>`;
+}
+
+/** The badge only (square), `size` px. Designed on a 128-unit board. */
+export function logoBadgeSvg(brand: Brand, size = 64, id = "cm"): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="${id}-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${brand.accent}"/><stop offset="1" stop-color="#9B7BFF"/></linearGradient>
-    <filter id="${id}-gemShadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="${1.5 * s}" stdDeviation="${1.2 * s}" flood-color="#000" flood-opacity="0.28"/></filter>
-    <filter id="${id}-boardShadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="${3 * s}" stdDeviation="${3 * s}" flood-color="${brand.accent}" flood-opacity="0.35"/></filter>
+    <linearGradient id="${id}-ios" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${IOS[0]}"/><stop offset="1" stop-color="${IOS[1]}"/></linearGradient>
+    <linearGradient id="${id}-android" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${ANDROID[0]}"/><stop offset="1" stop-color="${ANDROID[1]}"/></linearGradient>
+    <filter id="${id}-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.3"/></filter>
   </defs>
-  <rect x="${1 * s}" y="${1 * s}" width="${62 * s}" height="${62 * s}" rx="${16 * s}" fill="url(#${id}-bg)" filter="url(#${id}-boardShadow)"/>
-  <rect x="${1 * s}" y="${1 * s}" width="${62 * s}" height="${31 * s}" rx="${16 * s}" fill="#fff" opacity="0.10"/>
-  ${tiles}
+  <rect x="2" y="2" width="124" height="124" rx="32" fill="url(#${id}-bg)"/>
+  <rect x="2" y="2" width="124" height="62" rx="32" fill="#fff" opacity="0.10"/>
+  ${phone(id, 22, 30, 38, 72, "ios", -10)}
+  ${phone(id, 68, 30, 38, 72, "android", 10)}
+  ${star(64, 24, 13, SPARK, id)}${star(64, 24, 6, "#fff", id)}
+  <circle cx="27" cy="104" r="3" fill="${PINK}"/><circle cx="102" cy="100" r="2.5" fill="${PINK}"/><circle cx="16" cy="60" r="2" fill="#fff" opacity="0.7"/>
 </svg>`;
 }
 
-/** Board + "CrossMatch" wordmark, `height` px tall. */
+/** Badge + "CrossMatch" wordmark, `height` px tall. */
 export function logoSvg(brand: Brand, height = 64): string {
   const badge = logoBadgeSvg(brand, height, "cmw");
   const fontSize = height * 0.56;
   const width = height + height * 0.28 + fontSize * 6.4;
-  const inner = badge.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   const textX = height + height * 0.28;
   const textY = height * 0.5 + fontSize * 0.36;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="visible" role="img" aria-label="CrossMatch">
-  <defs><linearGradient id="cmw-word" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${brand.accent}"/><stop offset="1" stop-color="#FF6FA5"/></linearGradient></defs>
-  ${inner}
+  <defs><linearGradient id="cmw-word" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${brand.accent}"/><stop offset="1" stop-color="${PINK}"/></linearGradient></defs>
+  <svg x="0" y="0" width="${height}" height="${height}" viewBox="0 0 128 128">${badge.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "")}</svg>
   <text x="${textX}" y="${textY}" font-family="'Arial Rounded MT Bold','Nunito','Varela Round','Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="${fontSize}" letter-spacing="${-fontSize * 0.02}">
     <tspan fill="${brand.ink}">Cross</tspan><tspan fill="url(#cmw-word)">Match</tspan>
   </text>

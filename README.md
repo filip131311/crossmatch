@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/logo.png" alt="CrossMatch" width="330"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Filip131311/crossmatch/main/assets/logo.png" alt="CrossMatch" width="330"></p>
 
 Find the behavioural differences between a native iOS app and its Android twin, and document each
 one with a side-by-side video.
@@ -17,7 +17,7 @@ letting coding agents drive iOS simulators and Android emulators.
 **Demo** — a difference crossmatch found and documented in the bundled Dog Tinder apps: iOS shows a
 match dialog after liking, Android does not.
 
-<p align="center"><img src="assets/demo-match-alert.gif" alt="Side-by-side video: iOS shows an It's a match alert after liking, Android silently advances" width="720"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Filip131311/crossmatch/main/assets/demo-match-alert.gif" alt="Side-by-side video: iOS shows an It's a match alert after liking, Android silently advances" width="720"></p>
 
 ```bash
 npx crossmatch init      # config (apps auto-detected), the agent skill, Argent — all in one

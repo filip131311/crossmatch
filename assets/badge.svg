@@ -1,24 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="cm-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6C4CF1"/><stop offset="1" stop-color="#9B7BFF"/></linearGradient>
-    <linearGradient id="cm-ios" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5AA9FF"/><stop offset="1" stop-color="#2F7BE8"/></linearGradient>
-    <linearGradient id="cm-android" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4DE1B0"/><stop offset="1" stop-color="#19B984"/></linearGradient>
-    <filter id="cm-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.3"/></filter>
-  </defs>
-  <rect x="2" y="2" width="124" height="124" rx="32" fill="url(#cm-bg)"/>
-  <rect x="2" y="2" width="124" height="62" rx="32" fill="#fff" opacity="0.10"/>
-  <g transform="rotate(-10 41 66)" filter="url(#cm-shadow)">
-    <rect x="22" y="30" width="38" height="72" rx="8.36" fill="url(#cm-ios)"/>
-    <rect x="24" y="32" width="34" height="36" rx="7.6000000000000005" fill="#fff" opacity="0.14"/>
-    <ellipse cx="37.96" cy="41.519999999999996" rx="11.4" ry="6.4799999999999995" fill="#fff" opacity="0.5"/>
-    <rect x="32.64" y="36.48" width="16.72" height="5.3999999999999995" rx="2.88" fill="#14121F"/><rect x="33.4" y="94.8" width="15.200000000000001" height="1.8" rx="2" fill="#fff" opacity="0.85"/>
-  </g>
-  <g transform="rotate(10 87 66)" filter="url(#cm-shadow)">
-    <rect x="68" y="30" width="38" height="72" rx="8.36" fill="url(#cm-android)"/>
-    <rect x="70" y="32" width="34" height="36" rx="7.6000000000000005" fill="#fff" opacity="0.14"/>
-    <ellipse cx="83.96" cy="41.519999999999996" rx="11.4" ry="6.4799999999999995" fill="#fff" opacity="0.5"/>
-    <circle cx="87" cy="38.28" r="2.66" fill="#14121F"/><g fill="#fff" opacity="0.85"><rect x="77.12" y="94.44" width="3.8000000000000003" height="2.16" rx="1.5"/><rect x="85.1" y="94.44" width="3.8000000000000003" height="2.16" rx="1.5"/><rect x="93.08" y="94.44" width="3.8000000000000003" height="2.16" rx="1.5"/></g>
-  </g>
-  <path d="M64.00,11.00L67.86,20.14L77.00,24.00L67.86,27.86L64.00,37.00L60.14,27.86L51.00,24.00L60.14,20.14Z" fill="#FFD166" filter="url(#cm-shadow)"/><path d="M64.00,18.00L65.78,22.22L70.00,24.00L65.78,25.78L64.00,30.00L62.22,25.78L58.00,24.00L62.22,22.22Z" fill="#fff" filter="url(#cm-shadow)"/>
-  <circle cx="27" cy="104" r="3" fill="#FF6FA5"/><circle cx="102" cy="100" r="2.5" fill="#FF6FA5"/><circle cx="16" cy="60" r="2" fill="#fff" opacity="0.7"/>
+  <g transform="rotate(-8 43 64)"><rect x="24" y="26" width="38" height="76" rx="8.36" fill="#2F7BE8"/><rect x="34.64" y="32.84" width="16.72" height="5.7" rx="3.04" fill="#14121F"/><rect x="35.4" y="94.4" width="15.200000000000001" height="1.9000000000000001" rx="2" fill="#fff" opacity="0.9"/></g>
+  <g transform="rotate(8 85 64)"><rect x="66" y="26" width="38" height="76" rx="8.36" fill="#19B984"/><circle cx="85" cy="34.74" r="2.66" fill="#14121F"/><g fill="#fff" opacity="0.9"><rect x="75.12" y="94.02" width="3.8000000000000003" height="2.28" rx="1.5"/><rect x="83.1" y="94.02" width="3.8000000000000003" height="2.28" rx="1.5"/><rect x="91.08" y="94.02" width="3.8000000000000003" height="2.28" rx="1.5"/></g></g>
+  <circle cx="64" cy="18" r="5" fill="#6C4CF1"/>
 </svg>

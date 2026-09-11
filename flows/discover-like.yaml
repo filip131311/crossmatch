@@ -1,0 +1,9 @@
+title: Like a dog from Discover
+description: Launch, like the first dog (a mutual match), check what happens, then look at Matches.
+steps:
+  - launch: com.natively.dogtinder
+  - await: { visible: { id: dog-card } }
+  - tap: { id: like-button }
+  - wait: 800
+  - tap: { text: Matches }
+  - await: { visible: { text: Biscuit } }

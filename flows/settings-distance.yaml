@@ -1,0 +1,10 @@
+title: Change the max distance in Settings
+description: Open Settings, read the distance value, increase it twice and decrease it once.
+steps:
+  - launch: com.natively.dogtinder
+  - tap: { text: Settings }
+  - await: { visible: { id: distance-value } }
+  - tap: { id: distance-plus }
+  - tap: { id: distance-plus }
+  - tap: { id: distance-minus }
+  - assert: { visible: { id: distance-value } }

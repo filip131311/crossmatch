@@ -1,0 +1,9 @@
+title: Open a dog profile and pass
+description: Open Biscuit's profile from the card, read it, tap Nope, and check the next dog is shown.
+steps:
+  - launch: com.natively.dogtinder
+  - await: { visible: { id: dog-card } }
+  - tap: { id: dog-card }
+  - await: { visible: { text: Loves belly rubs } }
+  - tap: { id: nope-button }
+  - await: { visible: { text: Rex } }

@@ -1,0 +1,10 @@
+{
+  "ios": { "app": "fixtures/dogtinder-ios/build/Build/Products/Debug-iphonesimulator/DogTinder.app", "bundleId": "com.natively.dogtinder", "device": "iPhone 17 Pro" },
+  "android": { "app": "fixtures/dogtinder-android/app/build/outputs/apk/debug/app-debug.apk", "bundleId": "com.natively.dogtinder", "device": "Pixel_9_API_35_4GB" },
+  "out": "natively-out",
+  "flows": "flows",
+  "limits": { "maxScreens": 500, "maxFlows": 200, "maxSteps": 20000, "maxMinutes": 720 },
+  "brand": { "name": "natively", "accent": "#6C4CF1", "ink": "#14121F", "paper": "#FFFFFF" },
+  "recording": { "showTouches": true, "timeLimitSeconds": 300 },
+  "judgeRules": []
+}

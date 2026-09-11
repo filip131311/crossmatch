@@ -1,0 +1,17 @@
+title: Reset swipes clears matches
+description: Like Biscuit, confirm the match row exists, reset swipes in Settings, and confirm Matches is empty.
+steps:
+  - launch: com.natively.dogtinder
+  - await: { visible: { id: dog-card } }
+  - tap: { id: like-button }
+  - when: { platform: ios }
+    steps:
+      - await: { visible: { text: "It's a match!" } }
+      - tap: { text: Keep swiping }
+  - tap: { text: Matches }
+  - await: { visible: { id: match-row-biscuit } }
+  - tap: { text: Settings }
+  - await: { visible: { id: reset-swipes-button } }
+  - tap: { id: reset-swipes-button }
+  - tap: { text: Matches }
+  - await: { visible: { text: No matches yet } }

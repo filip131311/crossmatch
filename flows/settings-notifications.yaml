@@ -1,0 +1,12 @@
+title: Notifications toggle keeps its value
+description: Turn notifications on in Settings, go to Discover and back to Settings, and check the switch.
+steps:
+  - launch: com.natively.dogtinder
+  - tap: { text: Settings }
+  - await: { visible: { id: notifications-toggle } }
+  - tap: { id: notifications-toggle }
+  - wait: 500
+  - tap: { text: Discover }
+  - await: { visible: { id: dog-card } }
+  - tap: { text: Settings }
+  - await: { visible: { id: notifications-toggle } }

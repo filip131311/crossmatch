@@ -1,0 +1,14 @@
+title: Swipe through the whole deck
+description: Nope every dog until the deck is empty, then Start over.
+steps:
+  - launch: com.natively.dogtinder
+  - await: { visible: { id: dog-card } }
+  - tap: { id: nope-button }
+  - tap: { id: nope-button }
+  - tap: { id: nope-button }
+  - tap: { id: nope-button }
+  - tap: { id: nope-button }
+  - tap: { id: nope-button }
+  - await: { visible: { text: No more dogs nearby } }
+  - tap: { id: start-over-button }
+  - await: { visible: { text: Biscuit } }

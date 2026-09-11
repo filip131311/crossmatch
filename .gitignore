@@ -1,0 +1,11 @@
+node_modules/
+dist/
+natively-out/
+.argent/recordings/
+fixtures/dogtinder-ios/build/
+fixtures/dogtinder-ios/*.xcodeproj/
+fixtures/dogtinder-android/build/
+fixtures/dogtinder-android/app/build/
+fixtures/dogtinder-android/.gradle/
+fixtures/dogtinder-android/local.properties
+.DS_Store

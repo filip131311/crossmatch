@@ -1,0 +1,19 @@
+title: Send a message to a match
+description: Like Biscuit (a mutual match), open the Matches tab, open the chat, try Send with an empty field, then send "Hello".
+steps:
+  - launch: com.natively.dogtinder
+  - await: { visible: { id: dog-card } }
+  - tap: { id: like-button }
+  - when: { platform: ios }
+    steps:
+      - await: { visible: { text: "It's a match!" } }
+      - tap: { text: Keep swiping }
+  - tap: { text: Matches }
+  - await: { visible: { id: match-row-biscuit } }
+  - tap: { id: match-row-biscuit }
+  - await: { visible: { id: chat-input } }
+  - tap: { id: send-button }
+  - wait: 600
+  - type: { into: { id: chat-input }, text: "Hello", submit: false }
+  - tap: { id: send-button }
+  - await: { visible: { text: Hello } }

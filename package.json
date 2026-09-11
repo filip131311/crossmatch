@@ -1,0 +1,24 @@
+{
+  "name": "natively",
+  "version": "0.1.0",
+  "description": "Find and document behavioural differences between an iOS app and its Android twin, using Argent.",
+  "type": "module",
+  "bin": { "natively": "dist/cli.js" },
+  "files": ["dist", "skills", "assets", "README.md"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "node --test dist/test/*.test.js",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.60",
+    "commander": "^13.1.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

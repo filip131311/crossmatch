@@ -4,13 +4,16 @@
 Find the behavioural differences between a native iOS app and its Android twin, and document each
 one with a side-by-side video.
 
-crossmatch is built on [Argent](https://github.com/software-mansion/argent), Software Mansion's
-toolkit that lets coding agents drive iOS simulators and Android emulators. An agent explores both
-apps with the bundled Claude Code skill and writes one short flow per feature. crossmatch then
-replays every flow on both devices **in lockstep**, records both screens, diffs the accessibility
-trees after each step, has a judge decide which differences matter (and which are just platform
-idioms), renders a branded side-by-side mp4 with callouts for every confirmed difference, and writes
-an HTML report.
+Built on [Argent](https://github.com/software-mansion/argent), Software Mansion's toolkit for
+letting coding agents drive iOS simulators and Android emulators.
+
+**How it works**
+
+1. An agent explores both apps with the bundled skill and writes one short flow per feature.
+2. crossmatch replays every flow on both devices in lockstep and records both screens.
+3. After each step it diffs the two accessibility trees.
+4. A judge decides which differences matter and which are platform idioms.
+5. Each confirmed difference becomes a side-by-side video with callouts, and an HTML report.
 
 ```bash
 npx crossmatch init      # config (apps auto-detected), the agent skill, Argent — all in one

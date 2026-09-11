@@ -185,9 +185,6 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
     ctx.fill();
     ctx.restore();
   }
-  ctx.fillStyle = MUTED;
-  ctx.font = `600 15px ${FONT}`;
-  ctx.fillText(`CrossMatch · recorded in lockstep with Argent · ${new Date(output.run.startedAt).toISOString().slice(0, 10)}`, MARGIN, L.H - 30);
   return c.toBuffer("image/png");
 }
 

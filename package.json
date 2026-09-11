@@ -2,15 +2,47 @@
   "name": "crossmatch",
   "version": "0.1.0",
   "description": "Find and document behavioural differences between an iOS app and its Android twin, using Argent.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Filip131311/crossmatch.git"
+  },
+  "homepage": "https://github.com/Filip131311/crossmatch#readme",
+  "bugs": {
+    "url": "https://github.com/Filip131311/crossmatch/issues"
+  },
+  "keywords": [
+    "ios",
+    "android",
+    "argent",
+    "parity",
+    "cross-platform",
+    "testing",
+    "simulator",
+    "emulator",
+    "claude-code"
+  ],
   "type": "module",
-  "bin": { "crossmatch": "dist/cli.js" },
-  "files": ["dist", "skills", "assets", "README.md"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "crossmatch": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/test",
+    "skills",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "node --test dist/test/*.test.js",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.60",

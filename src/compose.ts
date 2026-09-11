@@ -27,6 +27,56 @@ const TAIL_MS = 2600;
 
 interface Layout { W: number; H: number; panels: Record<Side, { x: number; y: number; w: number; h: number }> }
 
+/** Device chrome that Argent's Android capture paints into the video: black rounded corners and the camera hole. */
+interface Chrome { cornerRadius: number; hole?: { x: number; y: number; w: number; h: number } }
+
+/** Measure the black corners and camera hole in one frame of a recording (all values in source pixels). */
+async function detectChrome(video: string, tmp: string): Promise<Chrome> {
+  const png = path.join(tmp, `${path.basename(video, ".mp4")}-chrome.png`);
+  const res = spawnSync(ffmpegBin(), ["-y", "-loglevel", "error", "-ss", "1", "-i", video, "-frames:v", "1", png], { encoding: "utf8" });
+  if (res.status !== 0) return { cornerRadius: 0 };
+  try {
+    const img = await loadImage(png);
+    const w = img.width;
+    const h = img.height;
+    const c = createCanvas(w, h);
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const dark = (px: number, py: number) => {
+      const i = (py * w + px) * 4;
+      return d[i] + d[i + 1] + d[i + 2] < 60;
+    };
+    // a rounded black corner of radius R is black along the top row for R pixels
+    let r = 0;
+    while (r < w / 4 && dark(r, 0)) r++;
+    let r2 = 0;
+    while (r2 < w / 4 && dark(w - 1 - r2, h - 1)) r2++;
+    const cornerRadius = Math.min(r, r2) >= 8 ? Math.min(r, r2) : 0;
+    // a camera hole: a dark blob near the top centre, a few percent of the width wide
+    let hole: Chrome["hole"];
+    const cx = Math.round(w / 2);
+    for (let y = Math.round(h * 0.005); y < h * 0.08; y += 2) {
+      if (!dark(cx, y)) continue;
+      let left = cx;
+      let right = cx;
+      while (left > 0 && dark(left - 1, y)) left--;
+      while (right < w - 1 && dark(right + 1, y)) right++;
+      let top = y;
+      let bottom = y;
+      while (top > 0 && dark(cx, top - 1)) top--;
+      while (bottom < h - 1 && dark(cx, bottom + 1)) bottom++;
+      const hw = right - left + 1;
+      const hh = bottom - top + 1;
+      if (hw > w * 0.02 && hw < w * 0.15 && hh > h * 0.005 && hh < h * 0.08) hole = { x: left, y: top, w: hw, h: hh };
+      break;
+    }
+    return { cornerRadius, hole };
+  } catch {
+    return { cornerRadius: 0 };
+  }
+}
+
 function layoutFor(output: RunOutput): Layout {
   const v = output.run.video;
   const w = (s: Side) => Math.round(((v[s].width || 1080) / (v[s].height || 2400)) * PANEL_H);
@@ -94,7 +144,7 @@ function drawLogo(ctx: SKRSContext2D, badge: Image, brand: Brand, right: number,
 }
 
 /** Static frame: background, header with title/severity/logo, panel labels, footer. Transparent where the videos go. */
-function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput, index: number, badge: Image): Buffer {
+function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput, index: number, badge: Image, screenRadius: number): Buffer {
   const c = createCanvas(L.W, L.H);
   const ctx = c.getContext("2d");
   ctx.fillStyle = GROUND;
@@ -118,12 +168,12 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
     ctx.shadowBlur = 22;
     ctx.shadowOffsetY = 8;
     ctx.fillStyle = "#fff";
-    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, 26);
+    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, screenRadius + 5);
     ctx.fill();
     ctx.restore();
     ctx.strokeStyle = hex(colour, 0.45);
     ctx.lineWidth = 2;
-    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, 26);
+    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, screenRadius + 5);
     ctx.stroke();
     ctx.fillStyle = colour;
     ctx.beginPath();
@@ -139,7 +189,7 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
     ctx.save();
     ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = "#000"; // opaque: destination-out removes by the SOURCE alpha
-    roundRect(ctx, p.x, p.y, p.w, p.h, 22);
+    roundRect(ctx, p.x, p.y, p.w, p.h, screenRadius);
     ctx.fill();
     ctx.restore();
   }
@@ -313,10 +363,15 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
     return files;
   }
   const badge = await loadImage(Buffer.from(logoBadgeSvg(brand, 256)));
+  const chrome: Record<Side, Chrome> = {
+    ios: await detectChrome(path.join(runDir, output.run.video.ios.file), tmp),
+    android: await detectChrome(path.join(runDir, output.run.video.android.file), tmp),
+  };
+  for (const side of ["ios", "android"] as Side[]) if (chrome[side].cornerRadius || chrome[side].hole) log(`  ${side} recording has device chrome (corner radius ${chrome[side].cornerRadius}px${chrome[side].hole ? ", camera hole" : ""}); masking it`);
   verdicts.forEach((v, i) => {
     const file = `diff-${i + 1}.mp4`;
     try {
-      composeOne(output, v, i, L, brand, runDir, tmp, file, log, badge);
+      composeOne(output, v, i, L, brand, runDir, tmp, file, log, badge, chrome);
       files.push(file);
       v.video = file;
       log(`  rendered ${file}: ${v.title}`);
@@ -328,7 +383,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   return files;
 }
 
-function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void, badge: Image) {
+function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void, badge: Image, chrome: Record<Side, Chrome>) {
   const steps = output.run.steps;
   const [a, b] = v.stepRange;
   for (const side of ["ios", "android"] as Side[]) {
@@ -344,8 +399,14 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
   for (const side of ["ios", "android"] as Side[]) if (steps[b][side].endMs > duration(side)) log(`  warning: step ${b + 1} on ${side} lies beyond the end of the recording (raise recording.timeLimitSeconds)`);
   const lenMs = Math.max(clipEnd("ios") - clipStart("ios"), clipEnd("android") - clipStart("android"), 1500);
   const len = lenMs / 1000;
+  // the screen corners: as round as the roundest recorded device, so black corner arcs are hidden
+  const P0 = L.panels;
+  const screenRadius = Math.max(
+    22,
+    ...(["ios", "android"] as Side[]).map((side) => (chrome[side].cornerRadius * P0[side].w) / (output.run.video[side].width || 1)),
+  );
   const frame = path.join(tmp, `frame-${index}.png`);
-  fs.writeFileSync(frame, drawFrame(L, brand, v, output, index, badge));
+  fs.writeFileSync(frame, drawFrame(L, brand, v, output, index, badge, screenRadius));
   const inputs: string[] = ["-ss", (clipStart("ios") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.ios.file), "-ss", (clipStart("android") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.android.file), "-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", frame];
   const overlays: Array<{ file: string; from: number; to: number }> = [];
   // captions: one per step in range, timed by the iOS side (both sides are within a few hundred ms)
@@ -386,11 +447,20 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
   });
   for (const o of overlays) inputs.push("-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", o.file);
   const P = L.panels;
+  const clean = (side: Side) => {
+    const hole = chrome[side].hole;
+    if (!hole) return "";
+    // delogo interpolates from the rectangle's border, so the border must lie on clean background
+    const pad = Math.round(Math.max(hole.w, hole.h) * 0.45) + 4;
+    const x = Math.max(1, hole.x - pad);
+    const y = Math.max(1, hole.y - pad);
+    return `delogo=x=${x}:y=${y}:w=${hole.w + pad * 2}:h=${hole.h + pad * 2},`;
+  };
   const fc: string[] = [
     // everything is composited in RGBA so the full-range (yuvj420p) recordings are not washed out
     `color=c=${GROUND}:s=${L.W}x${L.H}:r=30:d=${len.toFixed(3)},format=rgba[bg]`,
-    `[0:v]format=rgba,scale=${P.ios.w}:${P.ios.h}:flags=lanczos,tpad=stop_mode=clone:stop_duration=${len.toFixed(3)},setpts=PTS-STARTPTS[ios]`,
-    `[1:v]format=rgba,scale=${P.android.w}:${P.android.h}:flags=lanczos,tpad=stop_mode=clone:stop_duration=${len.toFixed(3)},setpts=PTS-STARTPTS[and]`,
+    `[0:v]${clean("ios")}format=rgba,scale=${P.ios.w}:${P.ios.h}:flags=lanczos,tpad=stop_mode=clone:stop_duration=${len.toFixed(3)},setpts=PTS-STARTPTS[ios]`,
+    `[1:v]${clean("android")}format=rgba,scale=${P.android.w}:${P.android.h}:flags=lanczos,tpad=stop_mode=clone:stop_duration=${len.toFixed(3)},setpts=PTS-STARTPTS[and]`,
     `[bg][ios]overlay=${P.ios.x}:${P.ios.y}:shortest=1[t0]`,
     `[t0][and]overlay=${P.android.x}:${P.android.y}[t1]`,
     `[t1][2:v]overlay=0:0[t2]`,

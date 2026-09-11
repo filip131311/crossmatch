@@ -43,6 +43,7 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
       items.push({ flow: r.run.flow, run: r.run.flow.name, verdict: v, steps: r.run.steps.slice(a, b + 1).map((s) => `${s.index + 1}. ${s.label}`), alsoIn: [] });
     }
   }
+  items.sort((x, y) => ORDER.indexOf(x.verdict.severity) - ORDER.indexOf(y.verdict.severity));
   // The same difference found by several flows is reported once (highest severity first), with the
   // other flows listed. Two verdicts are the same difference when they share a category and at least
   // one candidate signature (`category|sig,sig,...` keys).
@@ -71,7 +72,6 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
     }
     for (const pt of parts) if (!claimed.has(pt)) claimed.set(pt, it);
   }
-  items.sort((x, y) => ORDER.indexOf(x.verdict.severity) - ORDER.indexOf(y.verdict.severity));
   const real = items.filter((i) => i.verdict.severity !== "ignore");
   const ignored = items.filter((i) => i.verdict.severity === "ignore");
   const cov = readCoverage(loaded);

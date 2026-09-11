@@ -1,7 +1,7 @@
 # Dog Tinder fixture apps — shared spec
 
 Two native apps, `dogtinder-ios` (SwiftUI) and `dogtinder-android` (Kotlin + Jetpack Compose), that are
-functionally near-identical. They exist to test `natively`, a tool that diffs iOS and Android apps.
+functionally near-identical. They exist to test `crossmatch`, a tool that diffs iOS and Android apps.
 Some differences are PLANTED on purpose (section "Planted differences"). Everything else must match
 exactly: same copy, same data, same order, same ids, same behaviour. No randomness, no clocks, no network.
 

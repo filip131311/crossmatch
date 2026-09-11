@@ -1,4 +1,4 @@
-# Argent behaviours natively depends on or works around
+# Argent behaviours crossmatch depends on or works around
 
 Observed with Argent 0.25.0 (tool-server from `radon-lite`), iOS 26.4 simulator, Android API 35 emulator.
 
@@ -18,33 +18,33 @@ the helper: call `UiAutomation.clearCache()` (API 34+) before every capture, or 
 `serviceInfo.eventTypes = TYPES_ALL_MASK` / `flags |= FLAG_REPORT_VIEW_IDS` so the cache sees the
 subtree-changed events, or `AccessibilityNodeInfo.refresh()` the roots.
 
-natively mitigation (`src/runner.ts`): after an action step, if the Android tree is byte-identical to
+crossmatch mitigation (`src/runner.ts`): after an action step, if the Android tree is byte-identical to
 the tree before the action, restart the helper and describe again; inside `await`/`assert` polling,
-restart once after ~1.2 s of unchanged trees. `natively describe --fresh` does it on demand.
+restart once after ~1.2 s of unchanged trees. `crossmatch describe --fresh` does it on demand.
 
 ## Recording defaults that break side-by-side sync
 
 `screen-recording-start` defaults `trimStatic: true` (drops still frames, destroying the real-time
-timeline) and burns an Argent watermark. natively passes `trimStatic: false`; the watermark is
+timeline) and burns an Argent watermark. crossmatch passes `trimStatic: false`; the watermark is
 controlled by Argent's `video-watermark` flag (`argent disable video-watermark`).
 
 ## ffmpeg
 
 The tool-server records with the `ffmpeg` on its own PATH and needs libx264. A conda ffmpeg without
-x264 fails with `Unrecognized option 'preset'`. `natively doctor` checks both natively's ffmpeg and
+x264 fails with `Unrecognized option 'preset'`. `crossmatch doctor` checks both crossmatch's ffmpeg and
 the one on PATH.
 
 ## No install tool, no status-bar tool
 
 Argent has `reinstall-app` (uninstall + install, clears app data) but no plain install, and no tool to
-pin the status bar or set appearance/locale. natively pins the clock/battery itself with
+pin the status bar or set appearance/locale. crossmatch pins the clock/battery itself with
 `xcrun simctl status_bar` and Android SystemUI demo mode.
 
 ## `describe` returns text, not JSON
 
-The tool renders the tree to one line per element; natively parses that format (`src/describe.ts`).
+The tool renders the tree to one line per element; crossmatch parses that format (`src/describe.ts`).
 Roles are not harmonised across platforms (`AXButton` vs `Button`, clickable `View`s on Compose), so
-natively maps them to a small shared vocabulary.
+crossmatch maps them to a small shared vocabulary.
 
 ## iOS tab items lose their identifiers
 
@@ -54,7 +54,7 @@ Android drops the `testTag` id of the *selected* `NavigationBarItem`. Flows shou
 ## Ids that come and go
 
 - Compose `NavigationBarItem` drops its `testTag` resource-id while selected (the selected tab shows
-  as plain text). natively ignores an id that disappears only while its control is selected.
+  as plain text). crossmatch ignores an id that disappears only while its control is selected.
 - SwiftUI `.accessibilityIdentifier` on a `tabItem` label reached the tab bar buttons in some launches
   and not in others on iOS 26.4 (same app, same `ax-service` source). Select tabs by text.
 - Android's demo-mode status bar renders light icons over the app's light background, so the pinned

@@ -1,9 +1,9 @@
 {
-  "name": "natively",
+  "name": "crossmatch",
   "version": "0.1.0",
   "description": "Find and document behavioural differences between an iOS app and its Android twin, using Argent.",
   "type": "module",
-  "bin": { "natively": "dist/cli.js" },
+  "bin": { "crossmatch": "dist/cli.js" },
   "files": ["dist", "skills", "assets", "README.md"],
   "engines": { "node": ">=20" },
   "scripts": {

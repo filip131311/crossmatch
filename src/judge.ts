@@ -112,7 +112,7 @@ function buildBrief(loaded: LoadedConfig, output: RunOutput): string {
     })
     .join("\n");
   const extra = loaded.config.judgeRules.length ? `\n## Project-specific rules\n${loaded.config.judgeRules.map((r) => `- ${r}`).join("\n")}\n` : "";
-  return `You are the judge in "natively", a tool that compares an iOS app with its Android twin. A flow was
+  return `You are the judge in "crossmatch", a tool that compares an iOS app with its Android twin. A flow was
 replayed on both devices in lockstep; after every step both accessibility trees were compared. The
 mechanical comparison produced the candidate differences below. Decide which are real, user-relevant
 differences between the two apps and which are platform idioms or noise. Look at the screenshots

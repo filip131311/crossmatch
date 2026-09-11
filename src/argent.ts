@@ -35,7 +35,7 @@ export interface ArgentClient {
 }
 
 export function resolveArgentBin(): string {
-  const env = process.env.NATIVELY_ARGENT_BIN;
+  const env = process.env.CROSSMATCH_ARGENT_BIN;
   if (env) return env;
   const which = spawnSync(process.platform === "win32" ? "where" : "which", ["argent"], { encoding: "utf8" });
   if (which.status === 0 && which.stdout.trim()) return which.stdout.trim().split("\n")[0];
@@ -47,7 +47,7 @@ export function resolveArgentBin(): string {
     // fall through
   }
   throw new Error(
-    "Cannot find the `argent` CLI. Install it (`npm i -g @swmansion/argent`) or set NATIVELY_ARGENT_BIN to the cli.js path.",
+    "Cannot find the `argent` CLI. Install it (`npm i -g @swmansion/argent`) or set CROSSMATCH_ARGENT_BIN to the cli.js path.",
   );
 }
 
@@ -204,7 +204,7 @@ let cached: ArgentClient | undefined;
  */
 export async function connectArgent(opts: { prefer?: "http" | "cli" } = {}): Promise<ArgentClient> {
   if (cached) return cached;
-  const prefer = opts.prefer ?? (process.env.NATIVELY_ARGENT_TRANSPORT as "http" | "cli" | undefined) ?? "http";
+  const prefer = opts.prefer ?? (process.env.CROSSMATCH_ARGENT_TRANSPORT as "http" | "cli" | undefined) ?? "http";
   const bin = resolveArgentBin();
   if (prefer === "http") {
     for (const rec of readServerRecords()) {

@@ -1,6 +1,6 @@
 /**
  * Flow files use Argent's flow YAML step syntax (a subset: no relational selectors, no snapshots).
- * natively adds two optional top-level keys, `title` and `description`; Argent's own runner rejects
+ * crossmatch adds two optional top-level keys, `title` and `description`; Argent's own runner rejects
  * unknown top-level keys, so strip them (or move them into a leading `echo:`) to replay a flow with
  * `argent flow run`.
  */
@@ -18,7 +18,7 @@ function toSelector(v: unknown, ctx: string): Selector {
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
     for (const k of Object.keys(o)) {
-      if (UNSUPPORTED_SELECTOR_KEYS.has(k)) throw new Error(`${ctx}: relational selector "${k}:" is not supported by natively; name the element by id or text`);
+      if (UNSUPPORTED_SELECTOR_KEYS.has(k)) throw new Error(`${ctx}: relational selector "${k}:" is not supported by crossmatch; name the element by id or text`);
       if (!SELECTOR_KEYS.has(k)) throw new Error(`${ctx}: unknown selector key "${k}"`);
     }
     const sel: Selector = {};
@@ -98,7 +98,7 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
         return { kind: "swipe", direction: v as any };
       }
       const s = obj("swipe:");
-      for (const k of Object.keys(s)) if (!["direction", "from", "duration"].includes(k)) throw new Error(`${ctx}: swipe "${k}:" is not supported by natively (use direction, from, duration)`);
+      for (const k of Object.keys(s)) if (!["direction", "from", "duration"].includes(k)) throw new Error(`${ctx}: swipe "${k}:" is not supported by crossmatch (use direction, from, duration)`);
       if (!DIRS.includes(String(s.direction))) throw new Error(`${ctx}: swipe needs direction up|down|left|right`);
       return { kind: "swipe", direction: s.direction as any, from: s.from ? toSelector(s.from, ctx) : undefined, duration: typeof s.duration === "number" ? s.duration : undefined };
     }

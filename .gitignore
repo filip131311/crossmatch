@@ -1,6 +1,6 @@
 node_modules/
 dist/
-natively-out/
+crossmatch-out/
 .argent/recordings/
 fixtures/dogtinder-ios/build/
 fixtures/dogtinder-ios/*.xcodeproj/
@@ -9,6 +9,6 @@ fixtures/dogtinder-android/app/build/
 fixtures/dogtinder-android/.gradle/
 fixtures/dogtinder-android/local.properties
 .DS_Store
-natively-out-trial/
+crossmatch-out-trial/
 flows-trial/
-natively-trial.config.json
+crossmatch-trial.config.json

@@ -1,4 +1,4 @@
-/** Writes natively-out/report/index.html: every confirmed difference with its side-by-side video. */
+/** Writes crossmatch-out/report/index.html: every confirmed difference with its side-by-side video. */
 import fs from "node:fs";
 import path from "node:path";
 import type { LoadedConfig } from "./config.js";
@@ -109,7 +109,7 @@ pre.rubric{white-space:pre-wrap;background:#fff;padding:16px;border-radius:12px;
 <header class="top"><h1><span class="brand">${esc(brand.name)}</span>iOS vs Android differences</h1><p>${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))} · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</p></header>
 <main>
 <section class="summary"><div><b>${real.length}</b>differences</div>${counts.map(([s, n]) => `<div><b>${n}</b>${s}</div>`).join("")}<div><b>${runs.length}</b>flows compared</div><div><b>${cov.screens.length}</b>screens registered</div><div><b>${ignored.length}</b>filtered as noise</div></section>
-${real.length ? real.map(card).join("\n") : `<p>No differences confirmed. ${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>natively compare</code> first."}</p>`}
+${real.length ? real.map(card).join("\n") : `<p>No differences confirmed. ${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p>`}
 <h2>Filtered as platform idiom or noise (${ignored.length})</h2>
 <table><tr><th>Flow</th><th>Category</th><th>Title</th></tr>${ignored.map((i) => `<tr><td>${esc(i.flow.title ?? i.flow.name)}</td><td>${esc(i.verdict.category)}</td><td>${esc(i.verdict.title)}</td></tr>`).join("")}</table>
 <h2>Coverage</h2>

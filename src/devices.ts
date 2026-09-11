@@ -46,13 +46,13 @@ export async function ensureDevice(client: ArgentClient, side: Side, wanted: str
   if (booted) return { id: idOf(booted), name: booted.name ?? booted.avdName ?? idOf(booted), platform: side, state: "booted" };
   if (side === "ios") {
     const target = wanted ? mine.find(match) : mine[0];
-    if (!target) throw new Error(`No iOS simulator${wanted ? ` matching "${wanted}"` : ""} found (see \`natively devices\`)`);
+    if (!target) throw new Error(`No iOS simulator${wanted ? ` matching "${wanted}"` : ""} found (see \`crossmatch devices\`)`);
     log(`Booting iOS simulator ${target.name} (${idOf(target)})…`);
     const res = await client.call<any>("boot-device", { udid: idOf(target) });
     return { id: res.udid ?? idOf(target), name: target.name ?? idOf(target), platform: side, state: "booted" };
   }
   const avd = wanted ? (avds.includes(wanted) ? wanted : undefined) : avds[0];
-  if (!avd) throw new Error(`No Android device booted and no AVD${wanted ? ` named "${wanted}"` : ""} found (see \`natively devices\`)`);
+  if (!avd) throw new Error(`No Android device booted and no AVD${wanted ? ` named "${wanted}"` : ""} found (see \`crossmatch devices\`)`);
   log(`Booting Android emulator ${avd} (this can take minutes)…`);
   const res = await client.call<any>("boot-device", { avdName: avd });
   return { id: res.serial, name: avd, platform: side, state: "booted" };

@@ -10,15 +10,15 @@ function hasX264(bin: string): boolean {
   return res.status === 0 && /libx264/.test(res.stdout);
 }
 
-/** ffmpeg with libx264: NATIVELY_FFMPEG, then PATH, then the usual install dirs. */
+/** ffmpeg with libx264: CROSSMATCH_FFMPEG, then PATH, then the usual install dirs. */
 export function ffmpegBin(): string {
   if (ffmpegPath) return ffmpegPath;
-  const candidates = [process.env.NATIVELY_FFMPEG, "ffmpeg", ...CANDIDATE_DIRS.map((d) => path.join(d, "ffmpeg"))].filter((c): c is string => !!c);
+  const candidates = [process.env.CROSSMATCH_FFMPEG, "ffmpeg", ...CANDIDATE_DIRS.map((d) => path.join(d, "ffmpeg"))].filter((c): c is string => !!c);
   for (const c of candidates) {
     if (c !== "ffmpeg" && !fs.existsSync(c)) continue;
     if (hasX264(c)) return (ffmpegPath = c);
   }
-  throw new Error("No ffmpeg with libx264 found. Install it (macOS: `brew install ffmpeg`) or set NATIVELY_FFMPEG.");
+  throw new Error("No ffmpeg with libx264 found. Install it (macOS: `brew install ffmpeg`) or set CROSSMATCH_FFMPEG.");
 }
 
 export function ffprobeBin(): string {

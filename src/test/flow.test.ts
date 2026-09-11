@@ -6,7 +6,7 @@ import path from "node:path";
 import { parseFlow, stepLabel } from "../flow.js";
 
 function write(yaml: string): string {
-  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "natively-")), "f.yaml");
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "crossmatch-")), "f.yaml");
   fs.writeFileSync(f, yaml);
   return f;
 }

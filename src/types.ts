@@ -11,7 +11,7 @@ export interface SideConfig {
 }
 
 export interface Limits {
-  /** Distinct screens the exploration may register before `natively` asks the agent to stop. */
+  /** Distinct screens the exploration may register before `crossmatch` asks the agent to stop. */
   maxScreens: number;
   /** Total flows the exploration may author. */
   maxFlows: number;
@@ -28,7 +28,7 @@ export interface Brand {
   paper: string;
 }
 
-export interface NativelyConfig {
+export interface CrossmatchConfig {
   ios: SideConfig;
   android: SideConfig;
   /** Output directory, relative to the config file. */

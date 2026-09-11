@@ -283,7 +283,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
       log(`  failed to render ${file}: ${e instanceof Error ? e.message : e}`);
     }
   });
-  if (!process.env.NATIVELY_KEEP_TMP) fs.rmSync(tmp, { recursive: true, force: true });
+  if (!process.env.CROSSMATCH_KEEP_TMP) fs.rmSync(tmp, { recursive: true, force: true });
   return files;
 }
 

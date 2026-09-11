@@ -1,54 +1,54 @@
 ---
-name: natively
+name: crossmatch
 description: Find and document behavioural differences between a native iOS app and its Android twin. Use when the user has an iOS build and an Android build of "the same" app and wants to know where they diverge, wants a cross-platform parity check, or asks for side-by-side videos of platform differences. Drives both devices through Argent, records lockstep videos, judges what matters, and produces an HTML report.
 ---
 
-# natively — cross-platform parity exploration
+# crossmatch — cross-platform parity exploration
 
-You are the explorer. `natively` (a CLI on top of Argent) is your instrument: it drives an iOS
+You are the explorer. `crossmatch` (a CLI on top of Argent) is your instrument: it drives an iOS
 simulator and an Android emulator **in lockstep**, records both screens, diffs the accessibility
 trees after every step, judges the candidates with a rubric, renders branded side-by-side videos
 with callouts, and writes the report. Your job is to walk both apps, find every feature, and turn
 each feature into a flow file. Do not stop when you find the first difference: the goal is the
 complete list.
 
-Everything below assumes `natively.config.json` exists in the project (`natively init` writes one).
+Everything below assumes `crossmatch.config.json` exists in the project (`crossmatch init` writes one).
 
 ## 0. Setup (once)
 
 ```bash
-natively doctor        # argent, ffmpeg+libx264, adb, simctl, claude (judge), config, apps
-natively setup         # boots both devices, reinstalls both apps fresh, pins status bars, launches
-natively status        # exploration budget: screens / flows / steps / minutes vs limits
+crossmatch doctor        # argent, ffmpeg+libx264, adb, simctl, claude (judge), config, apps
+crossmatch setup         # boots both devices, reinstalls both apps fresh, pins status bars, launches
+crossmatch status        # exploration budget: screens / flows / steps / minutes vs limits
 ```
 
 If `doctor` says the ffmpeg on PATH has no libx264, fix PATH **before** Argent's tool-server
 starts (macOS: `export PATH=/opt/homebrew/bin:$PATH`, then `argent server stop`); recordings fail
-otherwise. Argent's own MCP tools work alongside `natively`; both talk to the same tool-server.
+otherwise. Argent's own MCP tools work alongside `crossmatch`; both talk to the same tool-server.
 
 ## 1. Explore both apps together
 
 Look at both sides at once, screen by screen:
 
 ```bash
-natively describe                  # normalised trees, both sides (roles, text, #id, flags, tap centre)
-natively describe -s android --fresh   # force-refresh if the Android tree does not match the screenshot
-natively argent screenshot -s ios      # any Argent tool on one side; prints the raw tool JSON
-natively argent gesture-tap -s android -a '{"x":0.5,"y":0.93}'   # -a = JSON args; x/y are 0–1 fractions
-natively screen <name> --note "what it is"    # register a screen you reached on BOTH sides
+crossmatch describe                  # normalised trees, both sides (roles, text, #id, flags, tap centre)
+crossmatch describe -s android --fresh   # force-refresh if the Android tree does not match the screenshot
+crossmatch argent screenshot -s ios      # any Argent tool on one side; prints the raw tool JSON
+crossmatch argent gesture-tap -s android -a '{"x":0.5,"y":0.93}'   # -a = JSON args; x/y are 0–1 fractions
+crossmatch screen <name> --note "what it is"    # register a screen you reached on BOTH sides
 ```
 
-`natively argent` returns the tool's raw result only: a tap does **not** come back with a screenshot,
-so take one with `natively argent screenshot` (the result's `hostPath` is a PNG you can view). The
+`crossmatch argent` returns the tool's raw result only: a tap does **not** come back with a screenshot,
+so take one with `crossmatch argent screenshot` (the result's `hostPath` is a PNG you can view). The
 `@(x, y)` at the end of every `describe` line is the tap centre in the same 0–1 space. The device id
 is injected; `bundleId` is injected for app-scoped tools (launch-app, restart-app, reinstall-app,
 describe, await-ui-element).
 
 Rules of exploration:
 
-- Reach each screen on both sides, then `natively screen <name>`. That records coverage, saves
-  both trees and screenshots under `natively-out/screens/`, and refuses (exit code 2) once the
-  screen budget is used. When `natively status` says `exhausted: true`, stop authoring and run
+- Reach each screen on both sides, then `crossmatch screen <name>`. That records coverage, saves
+  both trees and screenshots under `crossmatch-out/screens/`, and refuses (exit code 2) once the
+  screen budget is used. When `crossmatch status` says `exhausted: true`, stop authoring and run
   what you have.
 - Keep a coverage map in your head (or a scratch file): screen → controls seen → controls
   exercised. A control is "done" when a flow exercises it. Every interactive element in both trees
@@ -60,19 +60,19 @@ Rules of exploration:
   screen title); add `role:` to be explicit (`{ role: button, text: Settings }`).
 - Ids can be state-dependent: a selected Compose tab drops its id, SwiftUI tab items sometimes
   expose theirs only after a relaunch, dialogs and back buttons rarely have ids at all. Tabs are
-  safest by text. natively ignores an id that only disappears while its control is selected.
+  safest by text. crossmatch ignores an id that only disappears while its control is selected.
 - Never do destructive or external actions (purchases, account deletion, sending real messages,
   logging out of a shared account) unless the user explicitly asked for them.
 - The two apps must start from the same state. Every end-to-end flow starts with `launch:`, and
-  `natively compare --fresh` reinstalls both apps first. Do not carry state between flows.
-- Android trees can go stale after a screen change (Argent helper bug). `natively describe`
+  `crossmatch compare --fresh` reinstalls both apps first. Do not carry state between flows.
+- Android trees can go stale after a screen change (Argent helper bug). `crossmatch describe`
   refreshes the helper when the tree is identical to your previous call; if it still contradicts
   the screenshot, use `--fresh`. Lockstep runs handle this automatically.
 
 ## 2. Write one flow per feature
 
 Flows live in the `flows/` directory (see config). They use Argent's flow step syntax (subset: no
-relational selectors such as `within:`/`after:`, no `snapshot:`), plus two natively-only top-level
+relational selectors such as `within:`/`after:`, no `snapshot:`), plus two crossmatch-only top-level
 keys `title` and `description` (Argent's own `argent flow run` rejects unknown top-level keys, so
 remove them if you ever replay a flow there):
 
@@ -80,7 +80,7 @@ remove them if you ever replay a flow there):
 title: Comment on an item
 description: Open the first item, try to post an empty comment, then post "Nice".
 steps:
-  - launch:                          # the bundle ids from natively.config.json (or give one id, or { ios, android })
+  - launch:                          # the bundle ids from crossmatch.config.json (or give one id, or { ios, android })
   - await: { visible: { id: item-card } }
   - tap: { id: item-card }
   - await: { visible: { id: comment-input } }
@@ -122,18 +122,18 @@ Guidelines that make the diff useful:
 ## 3. Compare, judge, render, report
 
 ```bash
-natively compare                   # all flows: lockstep run + diff + judge + videos + report
-natively compare chat-send --fresh # one flow, reinstalling both apps first
-natively judge chat-send           # re-judge a run (e.g. after editing judgeRules in the config)
-natively judge chat-send --rules  # rule-based only (no LLM): every candidate becomes a "needs review" item
-natively judge chat-send --from verdicts.json   # import verdicts you wrote by hand (schema below)
-natively render chat-send          # re-render the side-by-side videos
-natively report                    # rebuild natively-out/report/index.html
+crossmatch compare                   # all flows: lockstep run + diff + judge + videos + report
+crossmatch compare chat-send --fresh # one flow, reinstalling both apps first
+crossmatch judge chat-send           # re-judge a run (e.g. after editing judgeRules in the config)
+crossmatch judge chat-send --rules  # rule-based only (no LLM): every candidate becomes a "needs review" item
+crossmatch judge chat-send --from verdicts.json   # import verdicts you wrote by hand (schema below)
+crossmatch render chat-send          # re-render the side-by-side videos
+crossmatch report                    # rebuild crossmatch-out/report/index.html
 ```
 
-Read the compare output. For every run look at `natively-out/runs/<flow>/candidates.json` and
+Read the compare output. For every run look at `crossmatch-out/runs/<flow>/candidates.json` and
 `verdicts.json`. The judge is a headless `claude -p` session with the rubric in
-`natively-out/report/index.html` (Rubric section). If you disagree with a verdict, or `claude` is
+`crossmatch-out/report/index.html` (Rubric section). If you disagree with a verdict, or `claude` is
 not installed (rule-based verdicts report everything), write `verdicts.json` yourself and import it:
 
 ```json
@@ -147,16 +147,16 @@ not installed (rule-based verdicts report everything), write `verdicts.json` you
 `stepRange` and `stepIndex` are 0-based here (`step`, 1-based, is also accepted on pointers, as in
 the judge prompt). Imports are validated the same way as judge output: unknown categories become
 noise, candidate ids must exist, and candidates you do not mention keep a rule-based verdict marked
-"needs review". Pointers are all you supply for the callouts; natively draws the uniform branded
+"needs review". Pointers are all you supply for the callouts; crossmatch draws the uniform branded
 highlight, label and ghost marker. Elements are looked up in the named step's tree (and the
 neighbouring steps); a pointer that resolves nowhere is logged and skipped.
 
 ## 4. Finish
 
-- Run `natively status`; if screens or controls remain unexercised and the budget allows, go back
+- Run `crossmatch status`; if screens or controls remain unexercised and the budget allows, go back
   to step 1. Finish only when every screen registered has every control exercised by a flow, or
   the budget is exhausted.
-- Open `natively-out/report/index.html` and check every difference has a video and the callouts
+- Open `crossmatch-out/report/index.html` and check every difference has a video and the callouts
   point at the right things. Re-judge or hand-write verdicts where the judge was wrong.
 - Tell the user: number of differences by severity, the titles, the report path, and what was
   filtered as platform idiom or noise (the report lists it).

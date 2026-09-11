@@ -26,11 +26,11 @@ function loadRunOutput(runDir: string): RunOutput {
   const out = path.join(runDir, "output.json");
   if (fs.existsSync(out)) return JSON.parse(fs.readFileSync(out, "utf8"));
   const run = path.join(runDir, "run.json");
-  if (!fs.existsSync(run)) throw new Error(`No run found in ${runDir}: run \`natively compare\` first`);
+  if (!fs.existsSync(run)) throw new Error(`No run found in ${runDir}: run \`crossmatch compare\` first`);
   return { run: JSON.parse(fs.readFileSync(run, "utf8")), candidates: [] };
 }
 const program = new Command();
-program.name("natively").description("Find and document behavioural differences between an iOS app and its Android twin.").version("0.1.0");
+program.name("crossmatch").description("Find and document behavioural differences between an iOS app and its Android twin.").version("0.1.0");
 program.option("-c, --config <file>", `path to ${CONFIG_FILE}`);
 
 function cfg() {
@@ -53,7 +53,7 @@ program
     const fail = (s: string) => { ok = false; console.log(`✗ ${s}`); };
     const pass = (s: string) => console.log(`✓ ${s}`);
     const ver = await argentVersion();
-    ver ? pass(`argent ${ver}`) : fail("argent CLI not found (npm i -g @swmansion/argent, or set NATIVELY_ARGENT_BIN)");
+    ver ? pass(`argent ${ver}`) : fail("argent CLI not found (npm i -g @swmansion/argent, or set CROSSMATCH_ARGENT_BIN)");
     try {
       pass(`ffmpeg with libx264: ${ffmpegBin()}`);
       const onPath = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], { encoding: "utf8" });
@@ -64,7 +64,7 @@ program
     spawnSync("adb", ["version"]).status === 0 ? pass("adb") : fail("adb not on PATH (needed to pin the Android status bar and refresh Argent's tree helper)");
     spawnSync("xcrun", ["simctl", "help"]).status === 0 ? pass("xcrun simctl") : fail("xcrun simctl not available (needed to pin the iOS status bar)");
     const cl = spawnSync("claude", ["--version"], { encoding: "utf8" });
-    cl.status === 0 ? pass(`claude CLI ${cl.stdout.trim()} (LLM judge available)`) : console.log("· claude CLI not found: `natively judge` will fall back to rule-based verdicts");
+    cl.status === 0 ? pass(`claude CLI ${cl.stdout.trim()} (LLM judge available)`) : console.log("· claude CLI not found: `crossmatch judge` will fall back to rule-based verdicts");
     let loaded;
     try {
       loaded = cfg();
@@ -277,7 +277,7 @@ program
     const loaded = cfg();
     const runDir = runDirFor(loaded, name);
     const output = loadRunOutput(runDir);
-    if (!output.verdicts) throw new Error("Run has no verdicts yet: run `natively judge` first");
+    if (!output.verdicts) throw new Error("Run has no verdicts yet: run `crossmatch judge` first");
     await renderRun(loaded, output, log);
     fs.writeFileSync(path.join(runDir, "verdicts.json"), JSON.stringify(output.verdicts, null, 2));
     fs.writeFileSync(path.join(runDir, "output.json"), JSON.stringify(output, null, 2));

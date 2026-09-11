@@ -1,22 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { NativelyConfig } from "./types.js";
+import type { CrossmatchConfig } from "./types.js";
 
-export const CONFIG_FILE = "natively.config.json";
+export const CONFIG_FILE = "crossmatch.config.json";
 
-export const DEFAULT_CONFIG: NativelyConfig = {
+export const DEFAULT_CONFIG: CrossmatchConfig = {
   ios: { app: "path/to/App.app", bundleId: "com.example.app" },
   android: { app: "path/to/app-debug.apk", bundleId: "com.example.app" },
-  out: "natively-out",
+  out: "crossmatch-out",
   flows: "flows",
   limits: { maxScreens: 500, maxFlows: 200, maxSteps: 20000, maxMinutes: 720 },
-  brand: { name: "natively", accent: "#6C4CF1", ink: "#14121F", paper: "#FFFFFF" },
+  brand: { name: "crossmatch", accent: "#6C4CF1", ink: "#14121F", paper: "#FFFFFF" },
   recording: { showTouches: true, timeLimitSeconds: 300 },
   judgeRules: [],
 };
 
 export interface LoadedConfig {
-  config: NativelyConfig;
+  config: CrossmatchConfig;
   /** Directory of the config file; every relative path resolves against it. */
   root: string;
   file: string;
@@ -35,9 +35,9 @@ export function findConfig(start = process.cwd()): string | undefined {
 
 export function loadConfig(explicit?: string): LoadedConfig {
   const file = explicit ? path.resolve(explicit) : findConfig();
-  if (!file) throw new Error(`No ${CONFIG_FILE} found. Run \`natively init\` first.`);
-  const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<NativelyConfig>;
-  const config: NativelyConfig = {
+  if (!file) throw new Error(`No ${CONFIG_FILE} found. Run \`crossmatch init\` first.`);
+  const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<CrossmatchConfig>;
+  const config: CrossmatchConfig = {
     ...DEFAULT_CONFIG,
     ...raw,
     ios: { ...DEFAULT_CONFIG.ios, ...raw.ios },

@@ -1,6 +1,6 @@
 /**
  * Executes flow directives on ONE device through Argent. Selector resolution uses the parsed
- * `describe` tree (the same tree the exploring agent saw), so a flow authored from `natively describe`
+ * `describe` tree (the same tree the exploring agent saw), so a flow authored from `crossmatch describe`
  * output resolves identically here.
  */
 import { spawnSync } from "node:child_process";

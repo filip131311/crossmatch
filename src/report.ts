@@ -110,8 +110,6 @@ body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.6 "Nunito Sa
 .top svg{height:48px;width:auto;display:block}
 .top .word{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:26px;letter-spacing:-.2px;display:flex;align-items:center;gap:14px;color:var(--ink)}
 .top .word i{font-style:normal;color:var(--accent)}
-.top .apps{font-size:13.5px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap;align-items:center}
-.top .apps i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
 main{max-width:1080px;margin:0 auto;padding:8px 24px 40px;display:grid;gap:22px}
 .diff{background:var(--card);border-radius:18px;padding:22px 26px 20px;box-shadow:var(--shadow);border:1px solid var(--line)}
 .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
@@ -131,7 +129,6 @@ footer{max-width:1080px;margin:0 auto;padding:4px 24px 40px;color:var(--muted);f
 </style></head><body>
 <header class="top">
   <div class="word">${logoBadgeSvg(brand, 48, "hdr")}<span>Cross<i>Match</i></span></div>
-  <div class="apps"><span><i style="background:var(--ios)"></i>iOS · ${esc(path.basename(loaded.config.ios.app))}</span><span><i style="background:var(--android)"></i>Android · ${esc(path.basename(loaded.config.android.app))}</span><span>${real.length} difference${real.length === 1 ? "" : "s"} in ${runs.length} flow${runs.length === 1 ? "" : "s"}</span></div>
 </header>
 <main>
 ${real.length ? real.map(card).join("\n") : `<article class="diff"><h2>No differences confirmed</h2><p class="desc">${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p></article>`}

@@ -1,6 +1,6 @@
 {
   "name": "crossmatch",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Find and document behavioural differences between an iOS app and its Android twin, using Argent.",
   "license": "MIT",
   "repository": {

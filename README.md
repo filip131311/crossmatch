@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="CrossMatch" width="330"></p>
+
 # crossmatch
 
 Find the behavioural differences between a native iOS app and its Android twin, and document each

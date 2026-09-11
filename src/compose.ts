@@ -19,7 +19,7 @@ const ROUNDED = "'Arial Rounded MT Bold', 'Nunito', 'Varela Round', 'Helvetica N
 const PANEL_H = 1100;
 const MARGIN = 40;
 const GAP = 48;
-const HEADER_H = 196;
+const HEADER_H = 84;
 const LABEL_H = 56;
 const FOOTER_H = 84;
 const LEAD_MS = 700;
@@ -149,16 +149,8 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
   const ctx = c.getContext("2d");
   ctx.fillStyle = GROUND;
   ctx.fillRect(0, 0, L.W, L.H);
-  ctx.fillStyle = MUTED;
-  ctx.font = `600 18px ${FONT}`;
-  ctx.fillText(`${output.run.flow.title ?? output.run.flow.name}  ·  difference ${index + 1}`, MARGIN, 40);
-  const sev = SEVERITY[verdict.severity] ?? SEVERITY.ignore;
-  const sw = pill(ctx, MARGIN, 54, verdict.severity.toUpperCase(), `800 14px ${ROUNDED}`, sev[0], sev[1], 12, 28);
-  pill(ctx, MARGIN + sw + 8, 54, verdict.category.replace("-", " ").toUpperCase(), `800 14px ${ROUNDED}`, TINT, brand.accent, 12, 28);
-  ctx.fillStyle = brand.ink;
-  ctx.font = `800 30px ${ROUNDED}`;
-  wrapText(ctx, verdict.title, MARGIN, 120, L.W - MARGIN * 2, 36, 2);
-  drawLogo(ctx, badge, brand, L.W - MARGIN, 22, 46);
+  // the report card already carries the title, severity and category: the clip shows only the mark
+  drawLogo(ctx, badge, brand, L.W - MARGIN, 22, 40);
   // panels: a thin, low-key bezel tinted by platform; the label is plain text with a colour dot
   for (const side of ["ios", "android"] as Side[]) {
     const p = L.panels[side];

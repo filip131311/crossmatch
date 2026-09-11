@@ -69,6 +69,7 @@ class Screen {
       if (!n.id && !isInteractive(n)) return true;
     }
     if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction bar / IME toolbar items
+    if (this.keyboard && KEYBOARD_WORDS.test(t)) return true; // keyboard tips ("Got it", "Hold and drag …") while a keyboard is up
     return isImeToolbar(t);
   }
 

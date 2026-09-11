@@ -141,8 +141,14 @@ function wrapText(ctx: SKRSContext2D, text: string, x: number, y: number, maxW: 
   if (line) ctx.fillText(line, x, y + lines * lineH);
 }
 
-/** A callout: highlight box around the element + label pill with a small arrow. Whole-canvas transparent PNG. */
-function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: string, ghost: boolean): Buffer {
+interface Rect { x: number; y: number; w: number; h: number }
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * A callout: highlight box around the element + label pill with a small arrow. Whole-canvas
+ * transparent PNG. The pill avoids the rects in `avoid` (labels already on screen at the same time).
+ */
+function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: string, ghost: boolean, avoid: Rect[]): { png: Buffer; labelRect: Rect } {
   const c = createCanvas(L.W, L.H);
   const ctx = c.getContext("2d");
   const p = L.panels[side];
@@ -161,14 +167,20 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
   roundRect(ctx, x, y, w, h, 14);
   ctx.stroke();
   ctx.restore();
-  // label pill: above the box when possible, else below
+  // label pill: above the box when possible, else below; slide away from labels already shown
   ctx.font = `700 22px ${FONT}`;
   const tw = ctx.measureText(label).width;
   const pw = tw + 36;
   const ph = 44;
-  let px = Math.min(Math.max(p.x, x + w / 2 - pw / 2), p.x + p.w - pw);
-  const above = y - ph - 18 > p.y;
-  const py = above ? y - ph - 18 : y + h + 18;
+  const px = Math.min(Math.max(p.x, x + w / 2 - pw / 2), p.x + p.w - pw);
+  const candidates: Array<{ py: number; above: boolean }> = [];
+  for (let k = 0; k < 4; k++) {
+    candidates.push({ py: y - ph - 18 - k * (ph + 10), above: true });
+    candidates.push({ py: y + h + 18 + k * (ph + 10), above: false });
+  }
+  const fits = (cand: { py: number }) => cand.py >= p.y - 4 && cand.py + ph <= p.y + p.h + 4 && !avoid.some((r) => overlaps(r, { x: px, y: cand.py, w: pw, h: ph }));
+  const chosen = candidates.find(fits) ?? candidates[0];
+  const { py, above } = chosen;
   ctx.fillStyle = ghost ? hex(brand.ink, 0.75) : brand.accent;
   roundRect(ctx, px, py, pw, ph, 12);
   ctx.fill();
@@ -188,7 +200,7 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
   ctx.fill();
   ctx.fillStyle = "#fff";
   ctx.fillText(label, px + 18, py + 30);
-  return c.toBuffer("image/png");
+  return { png: c.toBuffer("image/png"), labelRect: { x: px, y: py, w: pw, h: ph } };
 }
 
 function drawCaption(L: Layout, brand: Brand, text: string): Buffer {
@@ -306,12 +318,30 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
     overlays.push({ file: cap, from, to });
   }
   const pointers = resolvePointers(output, v, log);
+  // A callout is valid only while its step's screen is on: it appears a beat after the action and
+  // disappears when the next step starts on that side (or at the end of the clip for the last step).
+  // passive steps (await/assert/wait/echo) do not change the screen, so a callout survives them
+  const PASSIVE = new Set(["await", "assert", "wait", "echo"]);
+  const nextStart = (side: Side, stepIndex: number) => {
+    for (let s = stepIndex + 1; s <= b; s++) {
+      const st = steps[s];
+      if (PASSIVE.has(st.directive.kind)) continue;
+      if (st.directive.kind === "when" && st.directive.platform !== side) continue;
+      if (st[side].startMs > 0 && st[side].status !== "skip") return st[side].startMs;
+    }
+    return undefined;
+  };
+  const placed: Array<{ side: Side; from: number; to: number; rect: Rect }> = [];
   pointers.forEach((p, k) => {
+    const from = Math.min(Math.max(0, p.fromMs - clipStart(p.side) + 300) / 1000, len - 0.5);
+    const next = nextStart(p.side, p.stepIndex);
+    const to = next !== undefined ? Math.max(from + 1.5, (next - clipStart(p.side)) / 1000) : len;
+    const avoid = placed.filter((q) => q.side === p.side && q.from < to && from < q.to).map((q) => q.rect);
     const png = path.join(tmp, `ptr-${index}-${k}.png`);
-    fs.writeFileSync(png, drawPointer(L, brand, p.side, p.frame, p.label, p.ghost));
-    // appear a beat after the step's action landed; stay until the end of the clip
-    const from = Math.max(0, p.fromMs - clipStart(p.side) + 300) / 1000;
-    overlays.push({ file: png, from: Math.min(from, len - 0.5), to: len });
+    const drawn = drawPointer(L, brand, p.side, p.frame, p.label, p.ghost, avoid);
+    fs.writeFileSync(png, drawn.png);
+    placed.push({ side: p.side, from, to, rect: drawn.labelRect });
+    overlays.push({ file: png, from, to: Math.min(to, len) });
   });
   for (const o of overlays) inputs.push("-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", o.file);
   const P = L.panels;

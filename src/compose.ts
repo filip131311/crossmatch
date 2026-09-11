@@ -102,7 +102,7 @@ function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-const GROUND = "#F7F6FC";
+const GROUND = "#FAFAFD"; // identical to the report page ground so the clip melts into the page
 const ACCENT_2 = "#9B7BFF";
 const SPARK = "#FFD166";
 const PINK = "#FF6FA5";

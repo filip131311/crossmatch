@@ -80,59 +80,55 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
   const sevLabel: Record<string, string> = { high: "High", medium: "Medium", low: "Low", ignore: "Ignored" };
   const card = (it: Item, i: number) => {
     const v = it.verdict;
-    const video = v.video ? `<div class="player"><video controls preload="metadata" src="../runs/${esc(it.run)}/${esc(v.video)}"></video></div>` : `<p class="muted">No video rendered for this difference.</p>`;
-    return `<article class="diff" id="d${i + 1}">
-  <div class="meta"><span class="pill sev ${v.severity}">${sevLabel[v.severity] ?? v.severity}</span><span class="pill cat">${esc(v.category.replace("-", " "))}</span>${v.judge === "rules" ? `<span class="pill review">needs review</span>` : ""}<span class="flow">${esc(it.flow.title ?? it.flow.name)}</span></div>
+    const video = v.video ? `<video controls preload="metadata" src="../runs/${esc(it.run)}/${esc(v.video)}"></video>` : `<p class="muted">No video rendered for this difference.</p>`;
+    return `<section class="diff" id="d${i + 1}">
+  <p class="eyebrow"><span class="sev ${v.severity}">${sevLabel[v.severity] ?? v.severity}</span><span class="sep">·</span><span>${esc(v.category.replace("-", " "))}</span>${v.judge === "rules" ? `<span class="sep">·</span><span class="review">needs review</span>` : ""}<span class="sep">·</span><span class="flow">${esc(it.flow.title ?? it.flow.name)}</span></p>
   <h2>${esc(v.title)}</h2>
   <p class="desc">${esc(v.description)}</p>
   ${video}
-  ${it.alsoIn.length ? `<p class="also">Also seen in ${it.alsoIn.map((o) => esc(o.flow.title ?? o.flow.name)).join(", ")}</p>` : ""}
-  <details><summary>Steps shown (${it.steps.length})</summary><ol start="${parseInt(it.steps[0]) || 1}">${it.steps.map((s) => `<li>${esc(s.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol><p class="muted">Judged by ${v.judge}. Flow file <code>${esc(path.basename(it.flow.path))}</code>.</p></details>
-</article>`;
+  <p class="notes">${it.alsoIn.length ? `Also seen in ${it.alsoIn.map((o) => esc(o.flow.title ?? o.flow.name)).join(", ")}. ` : ""}<details><summary>Steps shown</summary><ol start="${parseInt(it.steps[0]) || 1}">${it.steps.map((s) => `<li>${esc(s.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol><span class="muted">Judged by ${v.judge} · <code>${esc(path.basename(it.flow.path))}</code></span></details></p>
+</section>`;
   };
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CrossMatch report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Nunito+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Nunito:wght@800&family=Nunito+Sans:wght@400;600&display=swap">
 <style>
 :root{
-  --accent:${brand.accent};--ios:#2F7BE8;--android:#19B984;
-  --ink:${brand.ink};--ink-2:#4B4668;--muted:#837E9E;
-  --ground:#F7F6FC;--tint:#EFEBFD;--card:#FFFFFF;--line:#E9E5F6;--shadow:0 1px 2px rgba(20,18,31,.05),0 8px 24px rgba(108,76,241,.07);
-  --high-bg:#FDE8EC;--high-fg:#B3263A;--med-bg:#FFF1D6;--med-fg:#8A5A00;--low-bg:#E6F0FF;--low-fg:#1F5FC2;--ign-bg:#EEEEF1;--ign-fg:#6B6B75;
+  --accent:${brand.accent};
+  --ink:${brand.ink};--ink-2:#4B4668;--muted:#8A86A3;--rule:#E6E3F0;
+  --ground:#FAFAFD;
+  --high:#C2334A;--medium:#9A6300;--low:#2A62B8;--ignore:#8A86A3;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--ground:#15132A;--tint:#221E3E;--card:#1D1935;--line:#2E2950;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);--high-bg:#3A1F27;--high-fg:#FF8A9A;--med-bg:#3A2E15;--med-fg:#FFC66B;--low-bg:#1C2A45;--low-fg:#7FB4FF;--ign-bg:#2A2A33;--ign-fg:#A9A9B4}}
-:root[data-theme="dark"]{--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--ground:#15132A;--tint:#221E3E;--card:#1D1935;--line:#2E2950;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);--high-bg:#3A1F27;--high-fg:#FF8A9A;--med-bg:#3A2E15;--med-fg:#FFC66B;--low-bg:#1C2A45;--low-fg:#7FB4FF;--ign-bg:#2A2A33;--ign-fg:#A9A9B4}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--rule:#2A2745;--ground:#131226;--high:#FF8A9A;--medium:#F0BE5E;--low:#7FB4FF;--ignore:#8F89AE}}
+:root[data-theme="dark"]{--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--rule:#2A2745;--ground:#131226;--high:#FF8A9A;--medium:#F0BE5E;--low:#7FB4FF;--ignore:#8F89AE}
 *{box-sizing:border-box}
-body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.6 "Nunito Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-.top{max-width:1080px;margin:0 auto;padding:40px 24px 20px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
-.top svg{height:48px;width:auto;display:block}
-.top .word{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:26px;letter-spacing:-.2px;display:flex;align-items:center;gap:14px;color:var(--ink)}
+body{margin:0;background:var(--ground);color:var(--ink);font:17px/1.6 "Nunito Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.page{max-width:920px;margin:0 auto;padding:56px 32px 80px}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:72px}
+.top svg{height:44px;width:auto;display:block}
+.top .word{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:24px;letter-spacing:-.2px;color:var(--ink)}
 .top .word i{font-style:normal;color:var(--accent)}
-main{max-width:1080px;margin:0 auto;padding:8px 24px 40px;display:grid;gap:22px}
-.diff{background:var(--card);border-radius:18px;padding:22px 26px 20px;box-shadow:var(--shadow);border:1px solid var(--line)}
-.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
-.pill{font-family:"Nunito",sans-serif;font-weight:800;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase;padding:3px 10px;border-radius:999px}
-.sev.high{background:var(--high-bg);color:var(--high-fg)}.sev.medium{background:var(--med-bg);color:var(--med-fg)}.sev.low{background:var(--low-bg);color:var(--low-fg)}.sev.ignore{background:var(--ign-bg);color:var(--ign-fg)}
-.cat{background:var(--tint);color:var(--accent)}.review{background:var(--med-bg);color:var(--med-fg)}
-.flow{color:var(--muted);font-weight:600;margin-left:4px}
-h2{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:22px;line-height:1.3;margin:12px 0 8px;text-wrap:balance;max-width:40em}
-.desc{margin:0 0 16px;color:var(--ink-2);max-width:78ch}
-.player{border-radius:14px;overflow:hidden;background:#F7F6FC;border:1px solid var(--line)}
-video{width:100%;max-height:78vh;display:block;background:#F7F6FC}
-.also{margin:12px 0 0;font-size:13.5px;color:var(--muted)}
-details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-family:"Nunito",sans-serif;font-weight:800;font-size:14px;color:var(--accent)}details ol{margin:8px 0 0;padding-left:22px;color:var(--ink-2)}
-.muted{color:var(--muted);font-size:13.5px}code{background:var(--tint);padding:1px 6px;border-radius:6px;font-size:12.5px}
-footer{max-width:1080px;margin:0 auto;padding:4px 24px 40px;color:var(--muted);font-size:13px}
-@media (max-width:600px){.top{padding:28px 16px 12px}main{padding:8px 16px 32px}.diff{padding:18px 18px 16px}h2{font-size:19px}}
+.diff{padding:0 0 64px;margin:0 0 64px;border-bottom:1px solid var(--rule)}
+.diff:last-of-type{border-bottom:0;margin-bottom:0}
+.eyebrow{margin:0 0 14px;font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.eyebrow .sep{margin:0 .6em;opacity:.6}
+.sev.high{color:var(--high)}.sev.medium{color:var(--medium)}.sev.low{color:var(--low)}.sev.ignore{color:var(--ignore)}
+.review{color:var(--medium)}
+h2{font-family:"Newsreader",Georgia,"Times New Roman",serif;font-weight:500;font-size:38px;line-height:1.15;letter-spacing:-.01em;margin:0 0 16px;text-wrap:balance;max-width:22em}
+.desc{margin:0 0 28px;color:var(--ink-2);max-width:62ch;font-size:18px}
+video{width:100%;max-height:80vh;display:block;background:var(--ground);border-radius:6px}
+.notes{margin:18px 0 0;font-size:14px;color:var(--muted)}
+details{display:inline}summary{cursor:pointer;display:inline;color:var(--accent);font-weight:600}details ol{margin:10px 0 6px;padding-left:22px;color:var(--ink-2)}
+.muted{color:var(--muted)}code{font-size:12.5px;color:var(--ink-2)}
+footer{max-width:920px;margin:0 auto;padding:0 32px 48px;color:var(--muted);font-size:13px}
+@media (max-width:600px){.page{padding:36px 20px 56px}.top{margin-bottom:44px}h2{font-size:29px}.diff{padding-bottom:44px;margin-bottom:44px}.desc{font-size:17px}}
 </style></head><body>
-<header class="top">
-  <div class="word">${logoBadgeSvg(brand, 48, "hdr")}<span>Cross<i>Match</i></span></div>
-</header>
-<main>
-${real.length ? real.map(card).join("\n") : `<article class="diff"><h2>No differences confirmed</h2><p class="desc">${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p></article>`}
-</main>
+<div class="page">
+<header class="top">${logoBadgeSvg(brand, 44, "hdr")}<span class="word">Cross<i>Match</i></span></header>
+${real.length ? real.map(card).join("\n") : `<section class="diff"><h2>No differences confirmed</h2><p class="desc">${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p></section>`}
+</div>
 <footer>${ignored.length} candidate${ignored.length === 1 ? "" : "s"} filtered as platform idiom or noise (report.json) · recorded in lockstep with Argent · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</footer>
 </body></html>`;
   const file = path.join(dir, "index.html");

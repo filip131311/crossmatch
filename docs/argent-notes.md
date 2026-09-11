@@ -50,3 +50,13 @@ natively maps them to a small shared vocabulary.
 
 SwiftUI `.accessibilityIdentifier` on a `tabItem` label does not reach the tab bar button on iOS 26;
 Android drops the `testTag` id of the *selected* `NavigationBarItem`. Flows should select tabs by text.
+
+## Ids that come and go
+
+- Compose `NavigationBarItem` drops its `testTag` resource-id while selected (the selected tab shows
+  as plain text). natively ignores an id that disappears only while its control is selected.
+- SwiftUI `.accessibilityIdentifier` on a `tabItem` label reached the tab bar buttons in some launches
+  and not in others on iOS 26.4 (same app, same `ax-service` source). Select tabs by text.
+- Android's demo-mode status bar renders light icons over the app's light background, so the pinned
+  "9:41" is barely visible on Android while it is crisp on iOS. Cosmetic; a dark-icons demo mode is
+  not exposed by the SystemUI demo broadcasts.

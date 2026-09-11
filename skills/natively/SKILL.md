@@ -31,12 +31,18 @@ otherwise. Argent's own MCP tools work alongside `natively`; both talk to the sa
 Look at both sides at once, screen by screen:
 
 ```bash
-natively describe                  # normalised trees, both sides (roles, text, #id, tap centre)
-natively describe -s android --fresh   # if the Android tree does not match the screenshot
-natively argent screenshot -s ios      # any Argent tool, device id injected; -a '{"json":"args"}'
-natively argent gesture-tap -s android -a '{"x":0.5,"y":0.93}'
+natively describe                  # normalised trees, both sides (roles, text, #id, flags, tap centre)
+natively describe -s android --fresh   # force-refresh if the Android tree does not match the screenshot
+natively argent screenshot -s ios      # any Argent tool on one side; prints the raw tool JSON
+natively argent gesture-tap -s android -a '{"x":0.5,"y":0.93}'   # -a = JSON args; x/y are 0–1 fractions
 natively screen <name> --note "what it is"    # register a screen you reached on BOTH sides
 ```
+
+`natively argent` returns the tool's raw result only: a tap does **not** come back with a screenshot,
+so take one with `natively argent screenshot` (the result's `hostPath` is a PNG you can view). The
+`@(x, y)` at the end of every `describe` line is the tap centre in the same 0–1 space. The device id
+is injected; `bundleId` is injected for app-scoped tools (launch-app, restart-app, reinstall-app,
+describe, await-ui-element).
 
 Rules of exploration:
 
@@ -48,13 +54,20 @@ Rules of exploration:
   exercised. A control is "done" when a flow exercises it. Every interactive element in both trees
   should end up in some flow: buttons, switches, segments, list rows, text fields, swipes on cards.
 - Prefer ids (`#id` in the tree) over text in selectors; both platforms should expose the same ids.
-  When only text is available, use the visible text; matches are case-insensitive substrings.
+  When only text is available, use the visible text; matches are case-insensitive substrings. A
+  text that matches several elements resolves to the exact match first, then an interactive element
+  over plain text, then the smallest frame (so `{ text: Settings }` taps the Settings tab, not the
+  screen title); add `role:` to be explicit (`{ role: button, text: Settings }`).
+- Ids can be state-dependent: a selected Compose tab drops its id, SwiftUI tab items sometimes
+  expose theirs only after a relaunch, dialogs and back buttons rarely have ids at all. Tabs are
+  safest by text. natively ignores an id that only disappears while its control is selected.
 - Never do destructive or external actions (purchases, account deletion, sending real messages,
   logging out of a shared account) unless the user explicitly asked for them.
 - The two apps must start from the same state. Every end-to-end flow starts with `launch:`, and
   `natively compare --fresh` reinstalls both apps first. Do not carry state between flows.
-- Android trees can go stale after a screen change (Argent helper bug). If the tree contradicts the
-  screenshot, use `natively describe --fresh`. Lockstep runs handle this automatically.
+- Android trees can go stale after a screen change (Argent helper bug). `natively describe`
+  refreshes the helper when the tree is identical to your previous call; if it still contradicts
+  the screenshot, use `--fresh`. Lockstep runs handle this automatically.
 
 ## 2. Write one flow per feature
 
@@ -64,24 +77,23 @@ keys `title` and `description` (Argent's own `argent flow run` rejects unknown t
 remove them if you ever replay a flow there):
 
 ```yaml
-title: Send a message to a match
-description: Like Biscuit (a mutual match), open the chat, try Send empty, then send "Hello".
+title: Comment on an item
+description: Open the first item, try to post an empty comment, then post "Nice".
 steps:
-  - launch: com.example.app
-  - await: { visible: { id: dog-card } }
-  - tap: { id: like-button }
-  - when: { platform: ios }          # platform-only steps: only when one side NEEDS them
+  - launch:                          # the bundle ids from natively.config.json (or give one id, or { ios, android })
+  - await: { visible: { id: item-card } }
+  - tap: { id: item-card }
+  - await: { visible: { id: comment-input } }
+  - tap: { id: post-button }         # empty comment: the sides may react differently — that is the point
+  - wait: 600
+  - type: { into: { id: comment-input }, text: "Nice", submit: false }
+  - tap: { id: post-button }
+  - await: { visible: { text: Nice } }
+  - when: { platform: android }      # platform-only steps: only to get PAST a known one-sided screen
     steps:
-      - await: { visible: { text: "It's a match!" } }
-      - tap: { text: Keep swiping }
-  - tap: { text: Matches }
-  - await: { visible: { id: match-row-biscuit } }
-  - tap: { id: match-row-biscuit }
-  - await: { visible: { id: chat-input } }
-  - tap: { id: send-button }
-  - type: { into: { id: chat-input }, text: "Hello", submit: false }
-  - tap: { id: send-button }
-  - await: { visible: { text: Hello } }
+      - button: back
+  - tap: { text: Favourites }
+  - assert: { text: { in: { id: favourites-count }, equals: "1" } }
 ```
 
 Directives: `launch` (bundle id, or `{ ios: …, android: … }`), `tap` (selector, `{on, times}` or
@@ -99,8 +111,9 @@ Guidelines that make the diff useful:
 - Short flows, one feature each (5–15 steps). Long flows blur which step caused what.
 - Put an `await` after every navigation so both sides settle before the next step.
 - A step that **fails on one side only** is itself a finding (the recorder keeps going on the other
-  side); do not "fix" the flow with `when:` to hide it. Use `when:` only for known, accepted
-  platform mechanics (dismissing an alert that exists by design on one side, a system dialog).
+  side); do not "fix" the flow with `when:` to hide it. Use `when:` to get *past* a one-sided screen
+  (a dialog only one side shows, a system prompt) only once another flow already documents that
+  screen as a difference; the trees before the `when:` step still record it either way.
 - When you already saw a difference while exploring, still write a flow that reproduces it: the
   report is built only from flows.
 - Cover the boring paths too: empty states, back navigation, re-visiting a screen (state

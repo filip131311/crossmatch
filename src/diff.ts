@@ -207,7 +207,11 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
     const e = (ea ?? eb)!;
     const otherAtoms = only === "ios" ? xb : xa;
     const textElsewhere = fragments(e.node.text).some((f) => otherAtoms.has(f));
-    if (isInteractive(e.node)) {
+    if (isInteractive(e.node) && textElsewhere && shared.has(id)) {
+      // the other side knows this id (other steps) and shows the same label right now: an id that
+      // drops out while the control is selected/focused (Compose NavigationBar does this), not a difference
+      for (const f of fragments(e.node.text)) comparedText.add(f);
+    } else if (isInteractive(e.node)) {
       out.push({ kind: "elements", signature: `only-${only}:#${id}`, summary: `Control "${e.node.text || id}" (#${id}) exists only on ${SIDE_NAME[only]}`, detail: `${SIDE_NAME[only]} has ${e.node.role} #${id} "${e.node.text}" at (${e.node.frame.x.toFixed(2)}, ${e.node.frame.y.toFixed(2)}); ${SIDE_NAME[other]} has no element with that id${textElsewhere ? `, though the text "${e.node.text}" does appear there` : ""}.`, pointers: [pointerFor(only, i, e.node, `Only on ${SIDE_NAME[only]}: ${e.node.text || id}`)], step: i });
       for (const f of fragments(e.node.text)) comparedText.add(f);
     } else if (shared.has(id)) {

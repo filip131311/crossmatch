@@ -153,9 +153,13 @@ export function describeSelector(sel: Selector): string {
   return parts.join(" ");
 }
 
-/** Compact one-line-per-element rendering for agents (normalised roles, short ids). */
+/** SF Symbol names that leak into the iOS tree as ids of icon artefacts (flame.fill, heart.fill). */
+export const SYMBOL_ARTEFACT = /^[a-z0-9]+(\.[a-z0-9]+)*\.(fill|circle|square|slash|badge|rectangle|triangle|bubble|left|right|up|down|\d)(\.[a-z0-9]+)*$/i;
+
+/** Compact one-line-per-element rendering for agents (normalised roles, short ids, icon artefacts dropped). */
 export function renderTree(tree: UiTree): string {
   return tree.nodes
+    .filter((n) => !(n.id && SYMBOL_ARTEFACT.test(n.id) && (n.role === "textfield" || n.role === "image")))
     .map((n) => {
       const bits = [n.role.padEnd(9), n.text ? JSON.stringify(n.text) : ""];
       if (n.id) bits.push(`#${n.id}`);

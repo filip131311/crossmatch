@@ -138,9 +138,16 @@ program
     const sides: Side[] = o.side === "both" ? ["ios", "android"] : [o.side];
     const out: Record<string, unknown> = {};
     for (const side of sides) {
-      const { session } = await sessionFor(side);
+      const { session, loaded } = await sessionFor(side);
       if (o.fresh) await session.refreshTreeSource();
-      const tree = await session.describe();
+      let tree = await session.describe();
+      // Android: a tree identical to the previous `describe` call is more often stale than unchanged
+      const marker = path.join(outDir(loaded), "scratch", `last-tree-${side}.txt`);
+      if (side === "android" && !o.fresh && fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === tree.raw) {
+        await session.refreshTreeSource();
+        tree = await session.describe();
+      }
+      fs.writeFileSync(marker, tree.raw);
       if (o.json) out[side] = tree.nodes;
       else console.log(`### ${side}\n${renderTree(tree)}\n`);
     }
@@ -183,7 +190,7 @@ program
 
 program
   .command("status")
-  .description("exploration budget: screens, flows, steps and time used vs limits")
+  .description("exploration budget vs limits: screens registered, distinct flows run, top-level steps run, wall-clock minutes since the first registration")
   .action(() => {
     const loaded = cfg();
     console.log(JSON.stringify(coverageStatus(loaded), null, 2));

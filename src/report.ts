@@ -106,7 +106,7 @@ video{width:100%;max-height:70vh;border-radius:12px;background:#000;margin:10px 
 table{border-collapse:collapse;width:100%;background:#fff;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 12px;border-bottom:1px solid #eee;font-size:14px}
 pre.rubric{white-space:pre-wrap;background:#fff;padding:16px;border-radius:12px;font-size:13px}
 </style></head><body>
-<header class="top"><h1><span class="brand">${esc(brand.name)}</span>iOS vs Android differences</h1><p>${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))} · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")}</p></header>
+<header class="top"><h1><span class="brand">${esc(brand.name)}</span>iOS vs Android differences</h1><p>${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))} · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</p></header>
 <main>
 <section class="summary"><div><b>${real.length}</b>differences</div>${counts.map(([s, n]) => `<div><b>${n}</b>${s}</div>`).join("")}<div><b>${runs.length}</b>flows compared</div><div><b>${cov.screens.length}</b>screens registered</div><div><b>${ignored.length}</b>filtered as noise</div></section>
 ${real.length ? real.map(card).join("\n") : `<p>No differences confirmed. ${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>natively compare</code> first."}</p>`}

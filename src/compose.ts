@@ -6,8 +6,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { createCanvas, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
-import { logoBadgeSvg } from "./logo.js";
+import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import type { LoadedConfig } from "./config.js";
 import { ffmpegBin } from "./ffmpeg.js";
 import { resolveSelector } from "./describe.js";
@@ -19,7 +18,7 @@ const ROUNDED = "'Arial Rounded MT Bold', 'Nunito', 'Varela Round', 'Helvetica N
 const PANEL_H = 1100;
 const MARGIN = 40;
 const GAP = 48;
-const HEADER_H = 84;
+const HEADER_H = 24;
 const LABEL_H = 56;
 const FOOTER_H = 84;
 const LEAD_MS = 700;
@@ -125,32 +124,13 @@ function pill(ctx: SKRSContext2D, x: number, y: number, text: string, font: stri
   return w;
 }
 
-/** The CrossMatch mark: tile badge (from the shared SVG) plus a rounded two-tone wordmark. */
-function drawLogo(ctx: SKRSContext2D, badge: Image, brand: Brand, right: number, top: number, height: number) {
-  const fontSize = height * 0.56;
-  ctx.font = `800 ${fontSize}px ${ROUNDED}`;
-  const wCross = ctx.measureText("Cross").width;
-  const wMatch = ctx.measureText("Match").width;
-  const textW = wCross + wMatch;
-  const total = height + height * 0.25 + textW;
-  const x = right - total;
-  ctx.drawImage(badge, x, top, height, height);
-  const tx = x + height + height * 0.25;
-  const ty = top + height * 0.5 + fontSize * 0.36;
-  ctx.fillStyle = brand.ink;
-  ctx.fillText("Cross", tx, ty);
-  ctx.fillStyle = brand.accent;
-  ctx.fillText("Match", tx + wCross, ty);
-}
-
 /** Static frame: background, header with title/severity/logo, panel labels, footer. Transparent where the videos go. */
-function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput, index: number, badge: Image, screenRadius: number): Buffer {
+function drawFrame(L: Layout, brand: Brand, output: RunOutput, screenRadius: number): Buffer {
   const c = createCanvas(L.W, L.H);
   const ctx = c.getContext("2d");
   ctx.fillStyle = GROUND;
   ctx.fillRect(0, 0, L.W, L.H);
-  // the report card already carries the title, severity and category: the clip shows only the mark
-  drawLogo(ctx, badge, brand, L.W - MARGIN, 22, 40);
+  // the report card carries the title, severity, category and the mark: the clip is just the two screens
   // panels: a thin, low-key bezel tinted by platform; the label is plain text with a colour dot
   for (const side of ["ios", "android"] as Side[]) {
     const p = L.panels[side];
@@ -351,7 +331,6 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
     log("  no side-by-side videos: a recording is missing on one side");
     return files;
   }
-  const badge = await loadImage(Buffer.from(logoBadgeSvg(brand, 256)));
   const chrome: Record<Side, Chrome> = {
     ios: await detectChrome(path.join(runDir, output.run.video.ios.file), tmp),
     android: await detectChrome(path.join(runDir, output.run.video.android.file), tmp),
@@ -360,7 +339,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   verdicts.forEach((v, i) => {
     const file = `diff-${i + 1}.mp4`;
     try {
-      composeOne(output, v, i, L, brand, runDir, tmp, file, log, badge, chrome);
+      composeOne(output, v, i, L, brand, runDir, tmp, file, log, chrome);
       files.push(file);
       v.video = file;
       log(`  rendered ${file}: ${v.title}`);
@@ -372,7 +351,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   return files;
 }
 
-function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void, badge: Image, chrome: Record<Side, Chrome>) {
+function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void, chrome: Record<Side, Chrome>) {
   const steps = output.run.steps;
   const [a, b] = v.stepRange;
   for (const side of ["ios", "android"] as Side[]) {
@@ -395,7 +374,7 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
     ...(["ios", "android"] as Side[]).map((side) => (chrome[side].cornerRadius * P0[side].w) / (output.run.video[side].width || 1)),
   );
   const frame = path.join(tmp, `frame-${index}.png`);
-  fs.writeFileSync(frame, drawFrame(L, brand, v, output, index, badge, screenRadius));
+  fs.writeFileSync(frame, drawFrame(L, brand, output, screenRadius));
   const inputs: string[] = ["-ss", (clipStart("ios") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.ios.file), "-ss", (clipStart("android") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.android.file), "-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", frame];
   const overlays: Array<{ file: string; from: number; to: number }> = [];
   // captions: one per step in range, timed by the iOS side (both sides are within a few hundred ms)

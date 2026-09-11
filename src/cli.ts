@@ -42,9 +42,10 @@ program
   .command("init")
   .description(`set the project up in one go: ${CONFIG_FILE} (apps auto-detected), the exploration skill in .claude/skills, Argent installed and wired into the editor`)
   .option("--no-argent", "do not install or initialise Argent")
+  .option("--no-scan", "do not look for built apps; write the config with placeholders")
   .option("-f, --force", "overwrite an existing config", false)
   .action(async (o) => {
-    await runInit(process.cwd(), { argent: o.argent, force: o.force, log });
+    await runInit(process.cwd(), { argent: o.argent, force: o.force, scan: o.scan, log });
   });
 
 program

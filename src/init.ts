@@ -12,21 +12,27 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_FILE, DEFAULT_CONFIG } from "./config.js";
 import type { CrossmatchConfig } from "./types.js";
 
-export interface InitOptions { argent: boolean; force: boolean; log: (s: string) => void }
+export interface InitOptions { argent: boolean; force: boolean; scan: boolean; log: (s: string) => void }
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function projectRoot(start: string): string {
+function projectRoot(start: string): { root: string; git: boolean } {
   const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: start, encoding: "utf8" });
-  return git.status === 0 && git.stdout.trim() ? git.stdout.trim() : start;
+  return git.status === 0 && git.stdout.trim() ? { root: git.stdout.trim(), git: true } : { root: start, git: false };
 }
 
-/** Walk a few levels for built apps, skipping dependency and VCS folders. */
-function findFiles(root: string, match: (name: string, full: string) => boolean, maxDepth = 10): string[] {
+/**
+ * Walk a few levels for built apps, skipping dependency and VCS folders. Bounded: at most `maxDepth`
+ * levels, `maxDirs` directories and `budgetMs` milliseconds, so a scan of a huge tree stops quickly
+ * instead of hanging.
+ */
+function findFiles(root: string, match: (name: string, full: string) => boolean, maxDepth = 8, maxDirs = 20000, budgetMs = 5000): string[] {
   const out: string[] = [];
-  const skip = new Set(["node_modules", ".git", "Pods", ".gradle", "DerivedData", ".idea", "crossmatch-out"]);
+  const skip = new Set(["node_modules", ".git", "Pods", ".gradle", "DerivedData", ".idea", "crossmatch-out", "Library", "Applications", ".Trash", ".cache", ".npm", ".nvm", ".pnpm-store", "vendor", "target", "__pycache__", ".venv", "venv"]);
+  const started = Date.now();
+  let dirs = 0;
   const walk = (dir: string, depth: number) => {
-    if (depth > maxDepth) return;
+    if (depth > maxDepth || ++dirs > maxDirs || Date.now() - started > budgetMs) return;
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -106,8 +112,9 @@ function hasArgent(): boolean {
 }
 
 export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
-  const root = projectRoot(cwd);
+  const { root, git } = projectRoot(cwd);
   const { log } = opts;
+  const home = process.env.HOME ?? "";
   const done: string[] = [];
   const todo: string[] = [];
   const step = (n: number, what: string) => log(`\n[${n}/4] ${what}`);
@@ -121,6 +128,8 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   };
 
   log(`crossmatch init in ${root}`);
+  if (root === home) log("  (this is your home directory; run init inside the project you want to compare, or keep going to set up here)");
+  else if (!git) log("  (not a git repository: using the current directory as the project root)");
 
   // 1. config
   step(1, `config file ${CONFIG_FILE}`);
@@ -128,10 +137,15 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   if (fs.existsSync(configPath) && !opts.force) {
     ok(`${CONFIG_FILE} already exists (kept; --force overwrites)`);
   } else {
-    log("  looking for built apps (.app bundles and .apk files) under the project…");
-    const found = detectApps(root);
-    log(`  iOS app: ${found.ios ? found.ios.app : "none found"}${found.ios?.bundleId ? ` (${found.ios.bundleId})` : ""}`);
-    log(`  Android app: ${found.android ? found.android.app : "none found"}${found.android?.bundleId ? ` (${found.android.bundleId})` : ""}`);
+    let found: ReturnType<typeof detectApps> = {};
+    if (!opts.scan) log("  app scan skipped (--no-scan); fill in the app paths later");
+    else if (root === home) log("  app scan skipped in the home directory; fill in the app paths later");
+    else {
+      log("  looking for built apps (.app bundles and .apk files) under the project (a few seconds at most)…");
+      found = detectApps(root);
+      log(`  iOS app: ${found.ios ? found.ios.app : "none found"}${found.ios?.bundleId ? ` (${found.ios.bundleId})` : ""}`);
+      log(`  Android app: ${found.android ? found.android.app : "none found"}${found.android?.bundleId ? ` (${found.android.bundleId})` : ""}`);
+    }
     const config: CrossmatchConfig = {
       ...DEFAULT_CONFIG,
       ios: { app: found.ios?.app ?? DEFAULT_CONFIG.ios.app, bundleId: found.ios?.bundleId ?? DEFAULT_CONFIG.ios.bundleId },
@@ -139,9 +153,9 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
     ok(`${CONFIG_FILE} written`);
-    if (!found.ios) later(`set ios.app (a simulator .app build) and ios.bundleId in ${CONFIG_FILE}`);
+    if (!found.ios) later(`when you have a simulator build, set ios.app (the .app) and ios.bundleId in ${CONFIG_FILE}`);
     else if (!found.ios.bundleId) later(`set ios.bundleId in ${CONFIG_FILE}`);
-    if (!found.android) later(`set android.app (an .apk) and android.bundleId in ${CONFIG_FILE}`);
+    if (!found.android) later(`when you have an Android build, set android.app (the .apk) and android.bundleId in ${CONFIG_FILE}`);
     else if (!found.android.bundleId) later(`set android.bundleId in ${CONFIG_FILE}`);
   }
 
@@ -187,5 +201,5 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   log("\nSummary");
   for (const d of done) log(`  ✓ ${d}`);
   for (const t of todo) log(`  · ${t}`);
-  log(`\nNext: \`crossmatch doctor\`, then \`crossmatch setup\`, then ask your agent to explore both apps with the crossmatch skill and run \`crossmatch compare\`.`);
+  log(`\nNext: \`crossmatch doctor\` (checks the toolchain; the apps can come later), then \`crossmatch setup\` once both builds are in ${CONFIG_FILE}, then ask your agent to explore both apps with the crossmatch skill and run \`crossmatch compare\`.`);
 }

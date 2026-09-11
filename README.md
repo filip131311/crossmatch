@@ -21,15 +21,19 @@ crossmatch setup     # boot both devices, install both apps fresh
 crossmatch compare   # run every flow, judge, render videos, write crossmatch-out/report/index.html
 ```
 
-The exploration itself is done by an agent: install the bundled skill into your project with
-`cp -r node_modules/crossmatch/skills/crossmatch .claude/skills/` (or point Claude Code at
-`skills/crossmatch/SKILL.md`) and ask it to explore both apps and write flows; `crossmatch compare`
-does the rest.
+An agent does the exploring. Add the bundled skill to your project and ask it to explore both apps:
 
-Requirements: macOS, Node 20+, Xcode + Android SDK, ffmpeg with libx264, Argent 0.25+ on PATH,
-and the Claude Code CLI for the judge (optional).
+```bash
+cp -r node_modules/crossmatch/skills/crossmatch .claude/skills/
+```
 
-- `docs/USAGE.md` — commands, configuration, flow syntax, how a difference becomes an artifact
-- `skills/crossmatch/SKILL.md` — the exploration procedure the agent follows
-- `docs/argent-notes.md` — Argent behaviours crossmatch depends on or works around
-- `fixtures/` — two "Dog Tinder" apps (SwiftUI and Compose) with planted differences, used for testing
+**Needs:** macOS · Node 20+ · Xcode and the Android SDK · ffmpeg with libx264 · Argent 0.25+ · Claude Code (for the judge)
+
+**Read next**
+
+| | |
+|---|---|
+| [`docs/USAGE.md`](docs/USAGE.md) | commands, configuration, flow syntax |
+| [`skills/crossmatch/SKILL.md`](skills/crossmatch/SKILL.md) | what the agent does |
+| [`docs/argent-notes.md`](docs/argent-notes.md) | Argent quirks crossmatch works around |
+| [`fixtures/`](fixtures/) | the two Dog Tinder test apps |

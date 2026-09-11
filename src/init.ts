@@ -110,60 +110,82 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   const { log } = opts;
   const done: string[] = [];
   const todo: string[] = [];
+  const step = (n: number, what: string) => log(`\n[${n}/4] ${what}`);
+  const ok = (what: string) => {
+    done.push(what);
+    log(`  ✓ ${what}`);
+  };
+  const later = (what: string) => {
+    todo.push(what);
+    log(`  · ${what}`);
+  };
+
+  log(`crossmatch init in ${root}`);
 
   // 1. config
+  step(1, `config file ${CONFIG_FILE}`);
   const configPath = path.join(root, CONFIG_FILE);
   if (fs.existsSync(configPath) && !opts.force) {
-    done.push(`${CONFIG_FILE} already exists (kept; --force overwrites)`);
+    ok(`${CONFIG_FILE} already exists (kept; --force overwrites)`);
   } else {
+    log("  looking for built apps (.app bundles and .apk files) under the project…");
     const found = detectApps(root);
+    log(`  iOS app: ${found.ios ? found.ios.app : "none found"}${found.ios?.bundleId ? ` (${found.ios.bundleId})` : ""}`);
+    log(`  Android app: ${found.android ? found.android.app : "none found"}${found.android?.bundleId ? ` (${found.android.bundleId})` : ""}`);
     const config: CrossmatchConfig = {
       ...DEFAULT_CONFIG,
       ios: { app: found.ios?.app ?? DEFAULT_CONFIG.ios.app, bundleId: found.ios?.bundleId ?? DEFAULT_CONFIG.ios.bundleId },
       android: { app: found.android?.app ?? DEFAULT_CONFIG.android.app, bundleId: found.android?.bundleId ?? DEFAULT_CONFIG.android.bundleId },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-    done.push(`${CONFIG_FILE} written${found.ios ? ` · iOS app: ${found.ios.app}` : ""}${found.android ? ` · Android app: ${found.android.app}` : ""}`);
-    if (!found.ios) todo.push(`set ios.app (a simulator .app build) and ios.bundleId in ${CONFIG_FILE}`);
-    else if (!found.ios.bundleId) todo.push(`set ios.bundleId in ${CONFIG_FILE}`);
-    if (!found.android) todo.push(`set android.app (an .apk) and android.bundleId in ${CONFIG_FILE}`);
-    else if (!found.android.bundleId) todo.push(`set android.bundleId in ${CONFIG_FILE}`);
+    ok(`${CONFIG_FILE} written`);
+    if (!found.ios) later(`set ios.app (a simulator .app build) and ios.bundleId in ${CONFIG_FILE}`);
+    else if (!found.ios.bundleId) later(`set ios.bundleId in ${CONFIG_FILE}`);
+    if (!found.android) later(`set android.app (an .apk) and android.bundleId in ${CONFIG_FILE}`);
+    else if (!found.android.bundleId) later(`set android.bundleId in ${CONFIG_FILE}`);
   }
 
   // 2. skill
+  step(2, "agent skill");
   const skillSrc = path.join(PKG_ROOT, "skills", "crossmatch");
   const skillDest = path.join(root, ".claude", "skills", "crossmatch");
   if (fs.existsSync(skillSrc)) {
     copyDir(skillSrc, skillDest);
-    done.push(`skill installed at ${path.relative(root, skillDest)}`);
+    ok(`skill installed at ${path.relative(root, skillDest)}`);
   } else {
-    todo.push(`skill not found in the package at ${skillSrc}`);
+    later(`skill not found in the package at ${skillSrc}`);
   }
 
   // 3. .gitignore
+  step(3, ".gitignore");
   const gi = path.join(root, ".gitignore");
   const ignoreLine = `${DEFAULT_CONFIG.out}/`;
   const current = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
   if (!current.split("\n").some((l) => l.trim() === ignoreLine || l.trim() === DEFAULT_CONFIG.out)) {
     fs.writeFileSync(gi, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${ignoreLine}\n`);
-    done.push(`${ignoreLine} added to .gitignore`);
+    ok(`${ignoreLine} added to .gitignore`);
+  } else {
+    ok(`${ignoreLine} already in .gitignore`);
   }
 
   // 4. argent
-  if (opts.argent) {
-    if (hasArgent()) {
-      const res = spawnSync("argent", ["init", "-y"], { cwd: root, stdio: "inherit" });
-      done.push(res.status === 0 ? "argent init ran (MCP server + Argent skills wired into the editor)" : "argent init reported an error (see above)");
-    } else {
-      log("Argent is not installed; installing it with npx @swmansion/argent@latest init -y …");
-      const res = spawnSync("npx", ["-y", "@swmansion/argent@latest", "init", "-y"], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
-      if (res.status === 0) done.push("Argent installed and wired into the editor");
-      else todo.push("install Argent: npm i -g @swmansion/argent@latest && argent init -y");
-    }
+  step(4, "Argent");
+  if (!opts.argent) {
+    log("  skipped (--no-argent)");
+  } else if (hasArgent()) {
+    log("  argent is installed; running `argent init -y` to wire its MCP server and skills into the editor…");
+    const res = spawnSync("argent", ["init", "-y"], { cwd: root, stdio: "inherit" });
+    if (res.status === 0) ok("argent init ran (MCP server + Argent skills wired into the editor)");
+    else later("argent init reported an error (see above); run `argent init -y` again after fixing it");
+  } else {
+    log("  argent is not installed; running `npx -y @swmansion/argent@latest init -y` (downloads Argent, can take a minute)…");
+    const res = spawnSync("npx", ["-y", "@swmansion/argent@latest", "init", "-y"], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+    if (res.status === 0) ok("Argent installed and wired into the editor");
+    else later("install Argent: npm i -g @swmansion/argent@latest && argent init -y");
   }
 
-  log("");
-  for (const d of done) log(`✓ ${d}`);
-  for (const t of todo) log(`· ${t}`);
+  log("\nSummary");
+  for (const d of done) log(`  ✓ ${d}`);
+  for (const t of todo) log(`  · ${t}`);
   log(`\nNext: \`crossmatch doctor\`, then \`crossmatch setup\`, then ask your agent to explore both apps with the crossmatch skill and run \`crossmatch compare\`.`);
 }

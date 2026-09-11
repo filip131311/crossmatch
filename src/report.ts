@@ -6,7 +6,7 @@ import { outDir } from "./config.js";
 import { readCoverage } from "./coverage.js";
 import { diffRun } from "./diff.js";
 import { KEY_SEP, verdictKey } from "./judge.js";
-import { TAXONOMY } from "./taxonomy.js";
+import { logoSvg } from "./logo.js";
 import type { RunOutput, Severity, Verdict } from "./types.js";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -89,33 +89,28 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
   <details><summary>Steps shown (${it.steps.length})</summary><ol start="${parseInt(it.steps[0]) || 1}">${it.steps.map((s) => `<li>${esc(s.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol><p class="muted">Judged by ${v.judge}. Flow file: <code>${esc(path.basename(it.flow.path))}</code></p></details>
 </article>`;
   };
+  const apps = `${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))}`;
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(brand.name)} report</title>
+<title>CrossMatch report</title>
 <style>
 :root{--accent:${brand.accent};--ink:${brand.ink};--paper:${brand.paper}}
 *{box-sizing:border-box}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#f6f5fb}
-header.top{background:var(--ink);color:#fff;padding:28px 32px}header.top h1{margin:0;font-size:28px}header.top .brand{display:inline-block;background:var(--accent);padding:4px 12px;border-radius:10px;font-weight:800;margin-right:12px}
-main{max-width:1180px;margin:0 auto;padding:24px 32px 64px}
-.summary{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 28px}.summary div{background:#fff;border-radius:12px;padding:12px 18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}.summary b{display:block;font-size:26px}
-.diff{background:#fff;border-radius:16px;padding:20px 24px;margin:0 0 22px;box-shadow:0 1px 4px rgba(0,0,0,.08)}.diff header{display:flex;gap:10px;align-items:center;font-size:13px}.diff h2{margin:8px 0 6px;font-size:22px}
+header.top{padding:36px 32px 8px;max-width:1180px;margin:0 auto}header.top svg{height:64px;width:auto;display:block}
+main{max-width:1180px;margin:0 auto;padding:16px 32px 48px}
+.diff{background:#fff;border-radius:16px;padding:20px 24px;margin:0 0 22px;box-shadow:0 1px 4px rgba(0,0,0,.08)}.diff header{display:flex;gap:10px;align-items:center;font-size:13px;flex-wrap:wrap}.diff h2{margin:8px 0 6px;font-size:22px}
 .sev{padding:2px 10px;border-radius:8px;color:#fff;font-weight:700;text-transform:uppercase;font-size:12px}.sev.high{background:#E5484D}.sev.medium{background:#F5A524}.sev.low{background:#3E8BFF}.sev.ignore{background:#9AA0A6}
 .review{padding:2px 10px;border-radius:8px;background:#FFF3CD;color:#7A5A00;font-weight:600}
 .cat{padding:2px 10px;border-radius:8px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent);font-weight:600}.flow{color:#666}
 video{width:100%;max-height:70vh;border-radius:12px;background:#000;margin:10px 0}details{margin-top:8px}summary{cursor:pointer;font-weight:600}.muted{color:#777;font-size:14px}
-table{border-collapse:collapse;width:100%;background:#fff;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 12px;border-bottom:1px solid #eee;font-size:14px}
-pre.rubric{white-space:pre-wrap;background:#fff;padding:16px;border-radius:12px;font-size:13px}
+footer{max-width:1180px;margin:0 auto;padding:0 32px 40px;color:#888;font-size:13px}
 </style></head><body>
-<header class="top"><h1><span class="brand">${esc(brand.name)}</span>iOS vs Android differences</h1><p>${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))} · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</p></header>
+<header class="top">${logoSvg(brand, 64)}</header>
 <main>
-<section class="summary"><div><b>${real.length}</b>differences</div>${counts.map(([s, n]) => `<div><b>${n}</b>${s}</div>`).join("")}<div><b>${runs.length}</b>flows compared</div><div><b>${cov.screens.length}</b>screens registered</div><div><b>${ignored.length}</b>filtered as noise</div></section>
 ${real.length ? real.map(card).join("\n") : `<p>No differences confirmed. ${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p>`}
-<h2>Filtered as platform idiom or noise (${ignored.length})</h2>
-<table><tr><th>Flow</th><th>Category</th><th>Title</th></tr>${ignored.map((i) => `<tr><td>${esc(i.flow.title ?? i.flow.name)}</td><td>${esc(i.verdict.category)}</td><td>${esc(i.verdict.title)}</td></tr>`).join("")}</table>
-<h2>Coverage</h2>
-<table><tr><th>Flows compared</th><td>${runs.map((r) => esc(r.run.flow.title ?? r.run.flow.name)).join("<br>") || "—"}</td></tr><tr><th>Screens registered</th><td>${cov.screens.map((s) => esc(s.name + (s.note ? ` — ${s.note}` : ""))).join("<br>") || "—"}</td></tr><tr><th>Steps run</th><td>${cov.stepsRun}</td></tr></table>
-<h2>Rubric</h2><pre class="rubric">${esc(TAXONOMY)}</pre>
-</main></body></html>`;
+</main>
+<footer>${apps} · ${runs.length} flow${runs.length === 1 ? "" : "s"} compared · ${ignored.length} candidate${ignored.length === 1 ? "" : "s"} filtered as platform idiom or noise (see report.json) · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</footer>
+</body></html>`;
   const file = path.join(dir, "index.html");
   fs.writeFileSync(file, html);
   fs.writeFileSync(path.join(dir, "report.json"), JSON.stringify({ generatedAt: new Date().toISOString(), differences: real.map((i) => ({ flow: i.run, ...i.verdict })), ignored: ignored.map((i) => ({ flow: i.run, ...i.verdict })), coverage: cov }, null, 2));

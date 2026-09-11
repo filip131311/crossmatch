@@ -6,7 +6,8 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
+import { logoBadgeSvg } from "./logo.js";
 import type { LoadedConfig } from "./config.js";
 import { ffmpegBin } from "./ffmpeg.js";
 import { resolveSelector } from "./describe.js";
@@ -14,6 +15,7 @@ import { ffprobeSize, runDirFor } from "./lockstep.js";
 import type { Brand, Frame, Pointer, RunOutput, Side, Verdict } from "./types.js";
 
 const FONT = "-apple-system, 'Helvetica Neue', Helvetica, Arial, Roboto, sans-serif";
+const ROUNDED = "'Arial Rounded MT Bold', 'Nunito', 'Varela Round', 'Helvetica Neue', Arial, sans-serif";
 const PANEL_H = 1100;
 const MARGIN = 40;
 const GAP = 48;
@@ -53,8 +55,29 @@ function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
 
 const SEVERITY_COLOUR: Record<string, string> = { high: "#E5484D", medium: "#F5A524", low: "#3E8BFF", ignore: "#9AA0A6" };
 
-/** Static frame: background, header with title/severity/brand, panel labels, footer. Transparent where the videos go. */
-function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput, index: number): Buffer {
+/** The CrossMatch mark: tile badge (from the shared SVG) plus a rounded two-tone wordmark. */
+function drawLogo(ctx: SKRSContext2D, badge: Image, brand: Brand, right: number, top: number, height: number) {
+  const fontSize = height * 0.56;
+  ctx.font = `800 ${fontSize}px ${ROUNDED}`;
+  const wCross = ctx.measureText("Cross").width;
+  const wMatch = ctx.measureText("Match").width;
+  const textW = wCross + wMatch;
+  const total = height + height * 0.25 + textW;
+  const x = right - total;
+  ctx.drawImage(badge, x, top, height, height);
+  const tx = x + height + height * 0.25;
+  const ty = top + height * 0.5 + fontSize * 0.36;
+  ctx.fillStyle = brand.ink;
+  ctx.fillText("Cross", tx, ty);
+  const grad = ctx.createLinearGradient(tx + wCross, 0, tx + textW, 0);
+  grad.addColorStop(0, brand.accent);
+  grad.addColorStop(1, "#FF6FA5");
+  ctx.fillStyle = grad;
+  ctx.fillText("Match", tx + wCross, ty);
+}
+
+/** Static frame: background, header with title/severity/logo, panel labels, footer. Transparent where the videos go. */
+function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput, index: number, badge: Image): Buffer {
   const c = createCanvas(L.W, L.H);
   const ctx = c.getContext("2d");
   ctx.fillStyle = brand.paper;
@@ -84,14 +107,8 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
   ctx.fillStyle = brand.ink;
   ctx.font = `700 30px ${FONT}`;
   wrapText(ctx, verdict.title, MARGIN, 128, L.W - MARGIN * 2, 36, 2);
-  // brand mark
-  ctx.font = `800 26px ${FONT}`;
-  const bw = ctx.measureText(brand.name).width;
-  ctx.fillStyle = brand.accent;
-  roundRect(ctx, L.W - MARGIN - bw - 36, 22, bw + 36, 44, 12);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.fillText(brand.name, L.W - MARGIN - bw - 18, 53);
+  // logo
+  drawLogo(ctx, badge, brand, L.W - MARGIN, 22, 52);
   // panel labels + device frames
   for (const side of ["ios", "android"] as Side[]) {
     const p = L.panels[side];
@@ -117,7 +134,7 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
   // footer
   ctx.fillStyle = hex(brand.ink, 0.45);
   ctx.font = `500 16px ${FONT}`;
-  ctx.fillText(`Recorded in lockstep with Argent · ${new Date(output.run.startedAt).toISOString().slice(0, 10)}`, MARGIN, L.H - 30);
+  ctx.fillText(`CrossMatch · recorded in lockstep with Argent · ${new Date(output.run.startedAt).toISOString().slice(0, 10)}`, MARGIN, L.H - 30);
   return c.toBuffer("image/png");
 }
 
@@ -272,10 +289,11 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
     log("  no side-by-side videos: a recording is missing on one side");
     return files;
   }
+  const badge = await loadImage(Buffer.from(logoBadgeSvg(brand, 256)));
   verdicts.forEach((v, i) => {
     const file = `diff-${i + 1}.mp4`;
     try {
-      composeOne(output, v, i, L, brand, runDir, tmp, file, log);
+      composeOne(output, v, i, L, brand, runDir, tmp, file, log, badge);
       files.push(file);
       v.video = file;
       log(`  rendered ${file}: ${v.title}`);
@@ -287,7 +305,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   return files;
 }
 
-function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void) {
+function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void, badge: Image) {
   const steps = output.run.steps;
   const [a, b] = v.stepRange;
   for (const side of ["ios", "android"] as Side[]) {
@@ -304,7 +322,7 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
   const lenMs = Math.max(clipEnd("ios") - clipStart("ios"), clipEnd("android") - clipStart("android"), 1500);
   const len = lenMs / 1000;
   const frame = path.join(tmp, `frame-${index}.png`);
-  fs.writeFileSync(frame, drawFrame(L, brand, v, output, index));
+  fs.writeFileSync(frame, drawFrame(L, brand, v, output, index, badge));
   const inputs: string[] = ["-ss", (clipStart("ios") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.ios.file), "-ss", (clipStart("android") / 1000).toFixed(3), "-t", len.toFixed(3), "-i", path.join(runDir, output.run.video.android.file), "-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", frame];
   const overlays: Array<{ file: string; from: number; to: number }> = [];
   // captions: one per step in range, timed by the iOS side (both sides are within a few hundred ms)

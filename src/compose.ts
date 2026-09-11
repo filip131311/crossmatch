@@ -19,7 +19,7 @@ const ROUNDED = "'Arial Rounded MT Bold', 'Nunito', 'Varela Round', 'Helvetica N
 const PANEL_H = 1100;
 const MARGIN = 40;
 const GAP = 48;
-const HEADER_H = 212;
+const HEADER_H = 196;
 const LABEL_H = 56;
 const FOOTER_H = 84;
 const LEAD_MS = 700;
@@ -53,33 +53,24 @@ function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-const GROUND = "#F4F1FF";
+const GROUND = "#F7F6FC";
 const ACCENT_2 = "#9B7BFF";
 const SPARK = "#FFD166";
 const PINK = "#FF6FA5";
 const PLATFORM: Record<Side, [string, string]> = { ios: ["#5AA9FF", "#2F7BE8"], android: ["#4DE1B0", "#19B984"] };
-const SEVERITY: Record<string, [string, string, string]> = { high: ["#FF7A93", "#E5484D", "#fff"], medium: ["#FFD97A", "#F5A524", "#4A3200"], low: ["#5AA9FF", "#2F7BE8", "#fff"], ignore: ["#B4B8BE", "#9AA0A6", "#fff"] };
+const SEVERITY: Record<string, [string, string]> = { high: ["#FDE8EC", "#B3263A"], medium: ["#FFF1D6", "#8A5A00"], low: ["#E6F0FF", "#1F5FC2"], ignore: ["#EEEEF1", "#6B6B75"] };
+const TINT = "#EFEBFD";
+const LINE = "#E9E5F6";
+const MUTED = "#837E9E";
 
-/** A glossy candy pill: vertical gradient, inner top highlight, soft shadow. Returns its width. */
-function candyPill(ctx: SKRSContext2D, x: number, y: number, text: string, font: string, colours: [string, string], textColour: string, padX = 16, h = 36): number {
+/** A flat, quiet pill. Returns its width. */
+function pill(ctx: SKRSContext2D, x: number, y: number, text: string, font: string, bg: string, fg: string, padX = 14, h = 32): number {
   ctx.font = font;
   const w = ctx.measureText(text).width + padX * 2;
-  ctx.save();
-  ctx.shadowColor = "rgba(20,18,31,0.22)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-  const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, colours[0]);
-  g.addColorStop(1, colours[1]);
-  ctx.fillStyle = g;
+  ctx.fillStyle = bg;
   roundRect(ctx, x, y, w, h, h / 2);
   ctx.fill();
-  ctx.restore();
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  roundRect(ctx, x + 3, y + 2, w - 6, h * 0.42, h * 0.3);
-  ctx.fill();
-  ctx.fillStyle = textColour;
-  ctx.font = font;
+  ctx.fillStyle = fg;
   ctx.fillText(text, x + padX, y + h * 0.68);
   return w;
 }
@@ -96,15 +87,10 @@ function drawLogo(ctx: SKRSContext2D, badge: Image, brand: Brand, right: number,
   ctx.drawImage(badge, x, top, height, height);
   const tx = x + height + height * 0.25;
   const ty = top + height * 0.5 + fontSize * 0.36;
-  ctx.save();
-  ctx.shadowColor = "rgba(20,18,31,0.25)";
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 2;
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = brand.ink;
   ctx.fillText("Cross", tx, ty);
-  ctx.fillStyle = SPARK;
+  ctx.fillStyle = brand.accent;
   ctx.fillText("Match", tx + wCross, ty);
-  ctx.restore();
 }
 
 /** Static frame: background, header with title/severity/logo, panel labels, footer. Transparent where the videos go. */
@@ -113,55 +99,52 @@ function drawFrame(L: Layout, brand: Brand, verdict: Verdict, output: RunOutput,
   const ctx = c.getContext("2d");
   ctx.fillStyle = GROUND;
   ctx.fillRect(0, 0, L.W, L.H);
-  // header band in the board gradient, with the glossy upper half
-  const band = HEADER_H - 20;
-  const g = ctx.createLinearGradient(0, 0, L.W, band);
-  g.addColorStop(0, brand.accent);
-  g.addColorStop(1, ACCENT_2);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, L.W, band);
-  ctx.fillStyle = "rgba(255,255,255,0.10)";
-  roundRect(ctx, 0, -40, L.W, band * 0.55 + 40, 40);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
-  ctx.font = `700 20px ${ROUNDED}`;
-  ctx.fillText(`${output.run.flow.title ?? output.run.flow.name}  ·  difference ${index + 1}`, MARGIN, 42);
+  ctx.fillStyle = MUTED;
+  ctx.font = `600 18px ${FONT}`;
+  ctx.fillText(`${output.run.flow.title ?? output.run.flow.name}  ·  difference ${index + 1}`, MARGIN, 40);
   const sev = SEVERITY[verdict.severity] ?? SEVERITY.ignore;
-  const sw = candyPill(ctx, MARGIN, 58, verdict.severity.toUpperCase(), `800 16px ${ROUNDED}`, [sev[0], sev[1]], sev[2], 14, 32);
-  candyPill(ctx, MARGIN + sw + 10, 58, verdict.category.replace("-", " "), `800 16px ${ROUNDED}`, ["rgba(255,255,255,0.32)", "rgba(255,255,255,0.18)"], "#fff", 14, 32);
-  ctx.fillStyle = "#fff";
-  ctx.font = `800 31px ${ROUNDED}`;
-  wrapText(ctx, verdict.title, MARGIN, 128, L.W - MARGIN * 2, 37, 2);
-  drawLogo(ctx, badge, brand, L.W - MARGIN, 20, 52);
-  // panels: candy bezel in the platform colours, platform pill as the label
+  const sw = pill(ctx, MARGIN, 54, verdict.severity.toUpperCase(), `800 14px ${ROUNDED}`, sev[0], sev[1], 12, 28);
+  pill(ctx, MARGIN + sw + 8, 54, verdict.category.replace("-", " ").toUpperCase(), `800 14px ${ROUNDED}`, TINT, brand.accent, 12, 28);
+  ctx.fillStyle = brand.ink;
+  ctx.font = `800 30px ${ROUNDED}`;
+  wrapText(ctx, verdict.title, MARGIN, 120, L.W - MARGIN * 2, 36, 2);
+  drawLogo(ctx, badge, brand, L.W - MARGIN, 22, 46);
+  // panels: a thin, low-key bezel tinted by platform; the label is plain text with a colour dot
   for (const side of ["ios", "android"] as Side[]) {
     const p = L.panels[side];
-    const [c1, c2] = PLATFORM[side];
+    const colour = PLATFORM[side][1];
     ctx.save();
-    ctx.shadowColor = hex(c2, 0.35);
-    ctx.shadowBlur = 24;
+    ctx.shadowColor = "rgba(20,18,31,0.10)";
+    ctx.shadowBlur = 22;
     ctx.shadowOffsetY = 8;
-    const bg = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
-    bg.addColorStop(0, c1);
-    bg.addColorStop(1, c2);
-    ctx.fillStyle = bg;
-    roundRect(ctx, p.x - 8, p.y - 8, p.w + 16, p.h + 16, 30);
+    ctx.fillStyle = "#fff";
+    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, 26);
     ctx.fill();
     ctx.restore();
-    ctx.fillStyle = "rgba(255,255,255,0.28)";
-    roundRect(ctx, p.x - 6, p.y - 6, p.w + 12, 14, 8);
+    ctx.strokeStyle = hex(colour, 0.45);
+    ctx.lineWidth = 2;
+    roundRect(ctx, p.x - 5, p.y - 5, p.w + 10, p.h + 10, 26);
+    ctx.stroke();
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.arc(p.x + 6, p.y - 24, 5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = brand.ink;
+    ctx.font = `800 20px ${ROUNDED}`;
     const name = side === "ios" ? "iOS" : "Android";
-    candyPill(ctx, p.x, p.y - 56, `${name}  ·  ${output.run.devices[side].name.replace(/_/g, " ")}`, `800 19px ${ROUNDED}`, [c1, c2], "#fff", 16, 38);
+    ctx.fillText(name, p.x + 20, p.y - 17);
+    ctx.fillStyle = MUTED;
+    ctx.font = `600 16px ${FONT}`;
+    ctx.fillText(output.run.devices[side].name.replace(/_/g, " "), p.x + 20 + ctx.measureText(name).width + 34, p.y - 17);
     ctx.save();
     ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = "#000"; // opaque: destination-out removes by the SOURCE alpha
-    roundRect(ctx, p.x, p.y, p.w, p.h, 20);
+    roundRect(ctx, p.x, p.y, p.w, p.h, 22);
     ctx.fill();
     ctx.restore();
   }
-  ctx.fillStyle = "#8C86AD";
-  ctx.font = `600 16px ${FONT}`;
+  ctx.fillStyle = MUTED;
+  ctx.font = `600 15px ${FONT}`;
   ctx.fillText(`CrossMatch · recorded in lockstep with Argent · ${new Date(output.run.startedAt).toISOString().slice(0, 10)}`, MARGIN, L.H - 30);
   return c.toBuffer("image/png");
 }
@@ -205,18 +188,18 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
   // glow + box
   ctx.save();
   if (ghost) ctx.setLineDash([10, 8]);
-  ctx.shadowColor = hex(brand.accent, ghost ? 0.25 : 0.6);
-  ctx.shadowBlur = 18;
-  ctx.strokeStyle = ghost ? hex(brand.accent, 0.7) : brand.accent;
-  ctx.lineWidth = 5;
+  ctx.shadowColor = hex(brand.accent, ghost ? 0.15 : 0.35);
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = ghost ? hex(brand.accent, 0.6) : brand.accent;
+  ctx.lineWidth = 4;
   roundRect(ctx, x, y, w, h, 14);
   ctx.stroke();
   ctx.restore();
   // label pill: above the box when possible, else below; slide away from labels already shown
-  ctx.font = `800 22px ${ROUNDED}`;
+  ctx.font = `800 21px ${ROUNDED}`;
   const tw = ctx.measureText(label).width;
   const pw = tw + 36;
-  const ph = 44;
+  const ph = 42;
   const px = Math.min(Math.max(p.x, x + w / 2 - pw / 2), p.x + p.w - pw);
   const candidates: Array<{ py: number; above: boolean }> = [];
   for (let k = 0; k < 4; k++) {
@@ -227,22 +210,16 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
   const chosen = candidates.find(fits) ?? candidates[0];
   const { py, above } = chosen;
   ctx.save();
-  ctx.shadowColor = "rgba(20,18,31,0.25)";
-  ctx.shadowBlur = 8;
+  ctx.shadowColor = "rgba(20,18,31,0.18)";
+  ctx.shadowBlur = 10;
   ctx.shadowOffsetY = 3;
-  const pg = ctx.createLinearGradient(0, py, 0, py + ph);
-  pg.addColorStop(0, ghost ? "#6B6590" : ACCENT_2);
-  pg.addColorStop(1, ghost ? "#3F3A5C" : brand.accent);
-  ctx.fillStyle = pg;
+  ctx.fillStyle = ghost ? "#4B4668" : brand.accent;
   roundRect(ctx, px, py, pw, ph, ph / 2);
   ctx.fill();
   ctx.restore();
-  ctx.fillStyle = "rgba(255,255,255,0.32)";
-  roundRect(ctx, px + 4, py + 2, pw - 8, ph * 0.42, ph * 0.3);
-  ctx.fill();
   // arrow
   const ax = Math.min(Math.max(x + w / 2, px + 22), px + pw - 22);
-  ctx.fillStyle = ghost ? "#3F3A5C" : brand.accent;
+  ctx.fillStyle = ghost ? "#4B4668" : brand.accent;
   ctx.beginPath();
   if (above) {
     ctx.moveTo(ax - 11, py + ph);
@@ -256,7 +233,7 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
   ctx.closePath();
   ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.font = `800 22px ${ROUNDED}`;
+  ctx.font = `800 21px ${ROUNDED}`;
   ctx.fillText(label, px + 18, py + 30);
   return { png: c.toBuffer("image/png"), labelRect: { x: px, y: py, w: pw, h: ph } };
 }
@@ -264,22 +241,21 @@ function drawPointer(L: Layout, brand: Brand, side: Side, frame: Frame, label: s
 function drawCaption(L: Layout, brand: Brand, text: string): Buffer {
   const c = createCanvas(L.W, L.H);
   const ctx = c.getContext("2d");
-  ctx.font = `800 20px ${ROUNDED}`;
+  ctx.font = `700 18px ${ROUNDED}`;
   const tw = ctx.measureText(text).width;
   const pw = tw + 40;
   const px = L.W - MARGIN - pw;
   const py = L.H - FOOTER_H + 22;
-  ctx.save();
-  ctx.shadowColor = "rgba(108,76,241,0.18)";
-  ctx.shadowBlur = 10;
-  ctx.shadowOffsetY = 3;
   ctx.fillStyle = "#fff";
-  roundRect(ctx, px, py, pw, 40, 20);
+  roundRect(ctx, px, py, pw, 38, 19);
   ctx.fill();
-  ctx.restore();
-  ctx.fillStyle = brand.accent;
-  ctx.font = `800 20px ${ROUNDED}`;
-  ctx.fillText(text, px + 20, py + 27);
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1;
+  roundRect(ctx, px, py, pw, 38, 19);
+  ctx.stroke();
+  ctx.fillStyle = "#4B4668";
+  ctx.font = `700 18px ${ROUNDED}`;
+  ctx.fillText(text, px + 20, py + 26);
   return c.toBuffer("image/png");
 }
 

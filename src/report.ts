@@ -83,69 +83,60 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
     const video = v.video ? `<div class="player"><video controls preload="metadata" src="../runs/${esc(it.run)}/${esc(v.video)}"></video></div>` : `<p class="muted">No video rendered for this difference.</p>`;
     return `<article class="diff" id="d${i + 1}">
   <div class="meta"><span class="pill sev ${v.severity}">${sevLabel[v.severity] ?? v.severity}</span><span class="pill cat">${esc(v.category.replace("-", " "))}</span>${v.judge === "rules" ? `<span class="pill review">needs review</span>` : ""}<span class="flow">${esc(it.flow.title ?? it.flow.name)}</span></div>
-  <h2><span class="num">${i + 1}</span>${esc(v.title)}</h2>
+  <h2>${esc(v.title)}</h2>
   <p class="desc">${esc(v.description)}</p>
   ${video}
-  ${it.alsoIn.length ? `<p class="also">Also seen in ${it.alsoIn.map((o) => `<span>${esc(o.flow.title ?? o.flow.name)}</span>`).join("")}</p>` : ""}
+  ${it.alsoIn.length ? `<p class="also">Also seen in ${it.alsoIn.map((o) => esc(o.flow.title ?? o.flow.name)).join(", ")}</p>` : ""}
   <details><summary>Steps shown (${it.steps.length})</summary><ol start="${parseInt(it.steps[0]) || 1}">${it.steps.map((s) => `<li>${esc(s.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol><p class="muted">Judged by ${v.judge}. Flow file <code>${esc(path.basename(it.flow.path))}</code>.</p></details>
 </article>`;
   };
-  const apps = `${esc(path.basename(loaded.config.ios.app))} vs ${esc(path.basename(loaded.config.android.app))}`;
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CrossMatch report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Nunito+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Nunito+Sans:wght@400;600;700&display=swap">
 <style>
 :root{
-  --accent:${brand.accent};--accent-2:#9B7BFF;--ios:#5AA9FF;--ios-2:#2F7BE8;--android:#4DE1B0;--android-2:#19B984;
-  --spark:#FFD166;--pink:#FF6FA5;--red:#FF5C7A;
-  --ink:${brand.ink};--ink-2:#4B4668;--muted:#7F7A9C;
-  --ground:#F4F1FF;--ground-2:#EEE9FF;--card:#FFFFFF;--line:#E6E0FA;--shadow:0 10px 30px rgba(108,76,241,.12),0 1px 2px rgba(20,18,31,.06);
+  --accent:${brand.accent};--ios:#2F7BE8;--android:#19B984;
+  --ink:${brand.ink};--ink-2:#4B4668;--muted:#837E9E;
+  --ground:#F7F6FC;--tint:#EFEBFD;--card:#FFFFFF;--line:#E9E5F6;--shadow:0 1px 2px rgba(20,18,31,.05),0 8px 24px rgba(108,76,241,.07);
+  --high-bg:#FDE8EC;--high-fg:#B3263A;--med-bg:#FFF1D6;--med-fg:#8A5A00;--low-bg:#E6F0FF;--low-fg:#1F5FC2;--ign-bg:#EEEEF1;--ign-fg:#6B6B75;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#F4F1FF;--ink-2:#CFC8F2;--muted:#9A93BF;--ground:#16132A;--ground-2:#1C1836;--card:#221D40;--line:#332C5A;--shadow:0 12px 32px rgba(0,0,0,.45)}}
-:root[data-theme="dark"]{--ink:#F4F1FF;--ink-2:#CFC8F2;--muted:#9A93BF;--ground:#16132A;--ground-2:#1C1836;--card:#221D40;--line:#332C5A;--shadow:0 12px 32px rgba(0,0,0,.45)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--ground:#15132A;--tint:#221E3E;--card:#1D1935;--line:#2E2950;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);--high-bg:#3A1F27;--high-fg:#FF8A9A;--med-bg:#3A2E15;--med-fg:#FFC66B;--low-bg:#1C2A45;--low-fg:#7FB4FF;--ign-bg:#2A2A33;--ign-fg:#A9A9B4}}
+:root[data-theme="dark"]{--ink:#F1EEFA;--ink-2:#C9C3E4;--muted:#8F89AE;--ground:#15132A;--tint:#221E3E;--card:#1D1935;--line:#2E2950;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);--high-bg:#3A1F27;--high-fg:#FF8A9A;--med-bg:#3A2E15;--med-fg:#FFC66B;--low-bg:#1C2A45;--low-fg:#7FB4FF;--ign-bg:#2A2A33;--ign-fg:#A9A9B4}
 *{box-sizing:border-box}
-body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.55 "Nunito Sans","Nunito",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-.display{font-family:"Nunito","Arial Rounded MT Bold","Varela Round","Helvetica Neue",Arial,sans-serif}
-.top{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;padding:36px 32px 64px;position:relative;overflow:hidden}
-.top::before{content:"";position:absolute;inset:0 0 50%;background:#fff;opacity:.10;border-radius:0 0 40px 40px}
-.top .inner{max-width:1120px;margin:0 auto;position:relative;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
-.top svg{height:64px;width:auto;display:block;filter:drop-shadow(0 6px 14px rgba(20,18,31,.25))}
-.top .word{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:900;font-size:34px;letter-spacing:-.3px;display:flex;align-items:center;gap:16px}
-.top .word i{font-style:normal;color:var(--spark)}
-.top .apps{font-family:"Nunito",sans-serif;font-weight:700;font-size:15px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.top .apps span{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:6px 14px;border-radius:999px;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
-.top .apps .ios{background:linear-gradient(180deg,var(--ios),var(--ios-2));border-color:transparent}.top .apps .android{background:linear-gradient(180deg,var(--android),var(--android-2));border-color:transparent}
-main{max-width:1120px;margin:-36px auto 0;padding:0 24px 40px;display:grid;gap:24px}
-.diff{background:var(--card);border-radius:26px;padding:22px 26px 20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-.diff::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;background:linear-gradient(90deg,var(--accent),var(--pink))}
-.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;margin-top:4px}
-.pill{font-family:"Nunito",sans-serif;font-weight:800;font-size:12.5px;letter-spacing:.3px;padding:5px 12px;border-radius:999px;color:#fff;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.45),0 2px 4px rgba(20,18,31,.15)}
-.sev.high{background:linear-gradient(180deg,#FF7A93,#E5484D)}.sev.medium{background:linear-gradient(180deg,#FFD97A,#F5A524);color:#4A3200}.sev.low{background:linear-gradient(180deg,var(--ios),var(--ios-2))}.sev.ignore{background:#9AA0A6}
-.cat{background:linear-gradient(180deg,var(--accent-2),var(--accent))}.review{background:linear-gradient(180deg,#FFE8A3,#FFC857);color:#5A3F00}
+body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.6 "Nunito Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.top{max-width:1080px;margin:0 auto;padding:40px 24px 20px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.top svg{height:48px;width:auto;display:block}
+.top .word{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:26px;letter-spacing:-.2px;display:flex;align-items:center;gap:14px;color:var(--ink)}
+.top .word i{font-style:normal;color:var(--accent)}
+.top .apps{font-size:13.5px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+.top .apps i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+main{max-width:1080px;margin:0 auto;padding:8px 24px 40px;display:grid;gap:22px}
+.diff{background:var(--card);border-radius:18px;padding:22px 26px 20px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.pill{font-family:"Nunito",sans-serif;font-weight:800;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase;padding:3px 10px;border-radius:999px}
+.sev.high{background:var(--high-bg);color:var(--high-fg)}.sev.medium{background:var(--med-bg);color:var(--med-fg)}.sev.low{background:var(--low-bg);color:var(--low-fg)}.sev.ignore{background:var(--ign-bg);color:var(--ign-fg)}
+.cat{background:var(--tint);color:var(--accent)}.review{background:var(--med-bg);color:var(--med-fg)}
 .flow{color:var(--muted);font-weight:600;margin-left:4px}
-h2{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:23px;line-height:1.25;margin:12px 0 8px;text-wrap:balance;display:flex;gap:12px;align-items:flex-start}
-h2 .num{flex:none;width:34px;height:34px;border-radius:12px;display:grid;place-items:center;font-size:17px;color:#fff;background:linear-gradient(180deg,var(--accent-2),var(--accent));box-shadow:inset 0 1.5px 0 rgba(255,255,255,.45),0 3px 6px rgba(108,76,241,.35);margin-top:1px}
-.desc{margin:0 0 14px;color:var(--ink-2);max-width:78ch}
-.player{border-radius:18px;overflow:hidden;background:#0f0d1c;box-shadow:0 8px 24px rgba(20,18,31,.18)}
-video{width:100%;max-height:72vh;display:block;background:#0f0d1c}
-.also{margin:12px 0 0;font-size:13.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}.also span{background:var(--ground-2);color:var(--ink-2);padding:3px 10px;border-radius:999px;font-weight:600}
-details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-family:"Nunito",sans-serif;font-weight:800;color:var(--accent)}details ol{margin:8px 0 0;padding-left:22px;color:var(--ink-2)}
-.muted{color:var(--muted);font-size:13.5px}code{background:var(--ground-2);padding:1px 6px;border-radius:6px;font-size:12.5px}
-footer{max-width:1120px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
-footer .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
-@media (prefers-reduced-motion:no-preference){.diff{transition:transform .2s ease}.diff:hover{transform:translateY(-2px)}}
-@media (max-width:600px){.top{padding:28px 20px 56px}.top .word{font-size:26px}main{padding:0 16px 32px}.diff{padding:18px 18px 16px;border-radius:20px}h2{font-size:20px}}
+h2{font-family:"Nunito","Arial Rounded MT Bold",Arial,sans-serif;font-weight:800;font-size:22px;line-height:1.3;margin:12px 0 8px;text-wrap:balance;max-width:40em}
+.desc{margin:0 0 16px;color:var(--ink-2);max-width:78ch}
+.player{border-radius:14px;overflow:hidden;background:#F7F6FC;border:1px solid var(--line)}
+video{width:100%;max-height:78vh;display:block;background:#F7F6FC}
+.also{margin:12px 0 0;font-size:13.5px;color:var(--muted)}
+details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-family:"Nunito",sans-serif;font-weight:800;font-size:14px;color:var(--accent)}details ol{margin:8px 0 0;padding-left:22px;color:var(--ink-2)}
+.muted{color:var(--muted);font-size:13.5px}code{background:var(--tint);padding:1px 6px;border-radius:6px;font-size:12.5px}
+footer{max-width:1080px;margin:0 auto;padding:4px 24px 40px;color:var(--muted);font-size:13px}
+@media (max-width:600px){.top{padding:28px 16px 12px}main{padding:8px 16px 32px}.diff{padding:18px 18px 16px}h2{font-size:19px}}
 </style></head><body>
-<header class="top"><div class="inner">
-  <div class="word">${logoBadgeSvg(brand, 64, "hdr")}<span>Cross<i>Match</i></span></div>
-  <div class="apps"><span class="ios">iOS · ${esc(path.basename(loaded.config.ios.app))}</span><span class="android">Android · ${esc(path.basename(loaded.config.android.app))}</span><span>${real.length} difference${real.length === 1 ? "" : "s"} in ${runs.length} flow${runs.length === 1 ? "" : "s"}</span></div>
-</div></header>
+<header class="top">
+  <div class="word">${logoBadgeSvg(brand, 48, "hdr")}<span>Cross<i>Match</i></span></div>
+  <div class="apps"><span><i style="background:var(--ios)"></i>iOS · ${esc(path.basename(loaded.config.ios.app))}</span><span><i style="background:var(--android)"></i>Android · ${esc(path.basename(loaded.config.android.app))}</span><span>${real.length} difference${real.length === 1 ? "" : "s"} in ${runs.length} flow${runs.length === 1 ? "" : "s"}</span></div>
+</header>
 <main>
 ${real.length ? real.map(card).join("\n") : `<article class="diff"><h2>No differences confirmed</h2><p class="desc">${runs.length ? "Every candidate was judged to be a platform idiom or noise." : "Run <code>crossmatch compare</code> first."}</p></article>`}
 </main>
-<footer><span><i class="dot" style="background:linear-gradient(180deg,var(--ios),var(--ios-2))"></i>iOS on the left</span><span><i class="dot" style="background:linear-gradient(180deg,var(--android),var(--android-2))"></i>Android on the right</span><span>${ignored.length} candidate${ignored.length === 1 ? "" : "s"} filtered as platform idiom or noise (report.json)</span><span>Recorded in lockstep with Argent · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</span></footer>
+<footer>${ignored.length} candidate${ignored.length === 1 ? "" : "s"} filtered as platform idiom or noise (report.json) · recorded in lockstep with Argent · generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</footer>
 </body></html>`;
   const file = path.join(dir, "index.html");
   fs.writeFileSync(file, html);

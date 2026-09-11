@@ -5,7 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { argentVersion, connectArgent } from "./argent.js";
 import { ffmpegBin } from "./ffmpeg.js";
-import { CONFIG_FILE, flowsDir, loadConfig, outDir, resolveFrom, writeDefaultConfig } from "./config.js";
+import { CONFIG_FILE, flowsDir, loadConfig, outDir, resolveFrom } from "./config.js";
+import { runInit } from "./init.js";
 import { renderTree } from "./describe.js";
 import { listDevices, resolveBothDevices, pinStatusBar } from "./devices.js";
 import { listFlows, parseFlow } from "./flow.js";
@@ -39,10 +40,11 @@ function cfg() {
 
 program
   .command("init")
-  .description(`write a ${CONFIG_FILE} template in the current directory`)
-  .action(() => {
-    const file = writeDefaultConfig(process.cwd());
-    console.log(`Wrote ${file}. Fill in ios.app / ios.bundleId / android.app / android.bundleId.`);
+  .description(`set the project up in one go: ${CONFIG_FILE} (apps auto-detected), the exploration skill in .claude/skills, Argent installed and wired into the editor`)
+  .option("--no-argent", "do not install or initialise Argent")
+  .option("-f, --force", "overwrite an existing config", false)
+  .action(async (o) => {
+    await runInit(process.cwd(), { argent: o.argent, force: o.force, log });
   });
 
 program

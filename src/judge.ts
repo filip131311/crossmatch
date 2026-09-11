@@ -8,6 +8,7 @@ import path from "node:path";
 import type { LoadedConfig } from "./config.js";
 import { runDirFor } from "./lockstep.js";
 import { CATEGORIES, SEVERITIES, TAXONOMY } from "./taxonomy.js";
+import { VOICE, tidyDescription, tidyTitle } from "./voice.js";
 import { meaningfulNodes } from "./describe.js";
 import type { Candidate, Category, Pointer, RunOutput, Severity, UiTree, Verdict } from "./types.js";
 
@@ -132,6 +133,8 @@ ${cands}
 ${evidence}
 
 ${TAXONOMY}
+
+${VOICE}
 ${extra}
 ## Output
 
@@ -144,11 +147,11 @@ Schema:
     "candidateIds": ["c1", "c4"],
     "category": ${JSON.stringify(CATEGORIES)}[i],
     "severity": ${JSON.stringify(SEVERITIES)}[i],
-    "title": "short headline a developer would file as a bug title (mention which side is which)",
-    "description": "2-4 sentences: what each side does, why it matters, consequences seen in later steps",
+    "title": "one plain sentence, <= 70 characters, e.g. \"Android has a Super Like button, iOS does not\"",
+    "description": "at most two short sentences (~30 words): what each side does, and why it matters",
     "stepRange": [firstStep1Based, lastStep1Based],   // the steps the side-by-side video should cover; include the step before the difference appears
     "pointers": [                                       // where to point in the video; one per side when both sides show something
-      { "side": "ios" | "android", "step": step1Based, "element": { "id": "like-button" } | { "text": "It's a match!" }, "label": "<= 6 words shown next to the pointer" }
+      { "side": "ios" | "android", "step": step1Based, "element": { "id": "like-button" } | { "text": "It's a match!" }, "label": "<= 4 words shown next to the pointer, e.g. \"Match dialog\"" }
     ]
   }
 ]
@@ -230,7 +233,7 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
         if (!side || step === undefined) continue;
         const element = p.element && typeof p.element === "object" ? (typeof p.element.id === "string" ? { id: p.element.id } : typeof p.element.text === "string" ? { text: p.element.text } : undefined) : undefined;
         if (!element) continue;
-        pointers.push({ side, stepIndex: step, element, label: String(p.label ?? "").slice(0, 60) || cands[0].summary.slice(0, 60) });
+        pointers.push({ side, stepIndex: step, element, label: String(p.label ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || cands[0].summary.slice(0, 40) });
       }
     }
     if (!pointers.length) pointers.push(...cands[0].pointers);
@@ -238,8 +241,8 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
       candidateIds,
       category,
       severity,
-      title: String(v.title ?? cands[0].summary).slice(0, 140),
-      description: String(v.description ?? cands[0].detail),
+      title: tidyTitle(String(v.title ?? cands[0].summary)),
+      description: tidyDescription(String(v.description ?? cands[0].detail)),
       stepRange: range,
       pointers,
       judge: "llm",

@@ -144,6 +144,11 @@ not installed (rule-based verdicts report everything), write `verdicts.json` you
    "judge": "human" }]
 ```
 
+Write titles and descriptions the way the judge does: a title of one plain sentence under 70
+characters naming the sides as iOS and Android, a description of at most two short sentences (what
+each side does, why it matters), callout labels of at most four words, and never step numbers, element
+ids, pixel percentages or detection details. crossmatch trims anything longer.
+
 `stepRange` and `stepIndex` are 0-based here (`step`, 1-based, is also accepted on pointers, as in
 the judge prompt). Imports are validated the same way as judge output: unknown categories become
 noise, candidate ids must exist, and candidates you do not mention keep a rule-based verdict marked

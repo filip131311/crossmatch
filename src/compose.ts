@@ -367,7 +367,7 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
     ios: await detectChrome(path.join(runDir, output.run.video.ios.file), tmp),
     android: await detectChrome(path.join(runDir, output.run.video.android.file), tmp),
   };
-  for (const side of ["ios", "android"] as Side[]) if (chrome[side].cornerRadius || chrome[side].hole) log(`  ${side} recording has device chrome (corner radius ${chrome[side].cornerRadius}px${chrome[side].hole ? ", camera hole" : ""}); masking it`);
+  for (const side of ["ios", "android"] as Side[]) if (chrome[side].cornerRadius) log(`  ${side} recording has black rounded corners (radius ${chrome[side].cornerRadius}px); masking them`);
   verdicts.forEach((v, i) => {
     const file = `diff-${i + 1}.mp4`;
     try {
@@ -447,15 +447,8 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
   });
   for (const o of overlays) inputs.push("-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", o.file);
   const P = L.panels;
-  const clean = (side: Side) => {
-    const hole = chrome[side].hole;
-    if (!hole) return "";
-    // delogo interpolates from the rectangle's border, so the border must lie on clean background
-    const pad = Math.round(Math.max(hole.w, hole.h) * 0.45) + 4;
-    const x = Math.max(1, hole.x - pad);
-    const y = Math.max(1, hole.y - pad);
-    return `delogo=x=${x}:y=${y}:w=${hole.w + pad * 2}:h=${hole.h + pad * 2},`;
-  };
+  // the camera hole is real device chrome and stays; only the black corner arcs are masked
+  const clean = (_side: Side) => "";
   const fc: string[] = [
     // everything is composited in RGBA so the full-range (yuvj420p) recordings are not washed out
     `color=c=${GROUND}:s=${L.W}x${L.H}:r=30:d=${len.toFixed(3)},format=rgba[bg]`,

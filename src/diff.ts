@@ -21,6 +21,8 @@ const KEYBOARD_WORDS = /^(shift|emoji|return|dictate|dictation|delete|space|next
 /** Extra words that only count as keyboard chrome inside an aggregated IME toolbar label. */
 const IME_ACTION_WORDS = /^(done|go|search|send|next|previous)$/i;
 const PREDICTION_BAR = /^typing predictions?$|^predictions?$/i;
+/** Ids iOS gives its keyboard keys (labels are localised: "usuń", "cyfry"). */
+const KEYBOARD_IDS = /^(shift|delete|more|emoji|space|return|dictation|nextkeyboard|globe|numbers|letters|symbols)$/i;
 const STATE_FLAGS = ["disabled", "checked", "selected"];
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -62,6 +64,8 @@ class Screen {
       // on the keyboard: keys, keyboard words and anonymous decorations are chrome; the app's own
       // input bar (an id, or an interactive control with a real label) is not
       if (t.length <= 1 || KEYBOARD_WORDS.test(t) || IME_ACTION_WORDS.test(t)) return true;
+      if (n.id && KEYBOARD_IDS.test(n.id)) return true;
+      if (n.role === "image") return true; // iOS keys are images
       if (!n.id && !isInteractive(n)) return true;
     }
     if (bars.some((b) => b !== n && contains(b, n))) return true; // prediction bar items

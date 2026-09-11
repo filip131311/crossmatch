@@ -57,6 +57,7 @@ function runCli(bin: string, argv: string[], opts: { timeoutMs?: number } = {}):
     const child = spawn(isJs ? process.execPath : bin, isJs ? [bin, ...argv] : argv, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
+      shell: process.platform === "win32" && !isJs, // `argent.cmd` shims need a shell on Windows
     });
     let stdout = "";
     let stderr = "";
@@ -210,8 +211,14 @@ export async function connectArgent(opts: { prefer?: "http" | "cli" } = {}): Pro
       const c = new HttpClient(rec);
       if (await c.ping()) return (cached = c);
     }
-    // no server: ask the CLI to start one, then look again
-    await runCli(bin, ["server", "start"], { timeoutMs: 30_000 }).catch(() => undefined);
+    // no server: ask the CLI to start one (it stays in the foreground, so detach it), then look again
+    try {
+      const isJs = bin.endsWith(".js") || bin.endsWith(".cjs");
+      const child = spawn(isJs ? process.execPath : bin, isJs ? [bin, "server", "start"] : ["server", "start"], { detached: true, stdio: "ignore", env: process.env });
+      child.unref();
+    } catch {
+      // fall through to the CLI transport
+    }
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       for (const rec of readServerRecords()) {

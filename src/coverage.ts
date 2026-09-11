@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { LoadedConfig } from "./config.js";
-import { outDir, flowsDir } from "./config.js";
+import { CONFIG_FILE, outDir, flowsDir } from "./config.js";
 import { listFlows } from "./flow.js";
 
-interface Coverage { startedAt: string; screens: Array<{ name: string; note?: string; at: string }>; stepsRun: number; flowsRun: number }
+interface Coverage { startedAt: string; screens: Array<{ name: string; note?: string; at: string }>; stepsRun: number; flowsRun: number; flowNames?: string[] }
 
 function file(loaded: LoadedConfig) {
   return path.join(outDir(loaded), "coverage.json");
@@ -20,11 +20,13 @@ function write(loaded: LoadedConfig, c: Coverage) {
   fs.writeFileSync(file(loaded), JSON.stringify(c, null, 2));
 }
 
-export function coverageAdd(loaded: LoadedConfig, name: string, note?: string) {
+export function coverageAdd(loaded: LoadedConfig, name: string, note?: string): { registered: boolean; reason?: string; status: ReturnType<typeof coverageStatus> } {
   const c = readCoverage(loaded);
-  if (!c.screens.some((s) => s.name === name)) c.screens.push({ name, note, at: new Date().toISOString() });
+  const known = c.screens.some((s) => s.name === name);
+  if (!known && c.screens.length >= loaded.config.limits.maxScreens) return { registered: false, reason: `screen budget of ${loaded.config.limits.maxScreens} used; raise limits.maxScreens in ${CONFIG_FILE} to register more`, status: coverageStatus(loaded) };
+  if (!known) c.screens.push({ name, note, at: new Date().toISOString() });
   write(loaded, c);
-  return coverageStatus(loaded);
+  return { registered: true, status: coverageStatus(loaded) };
 }
 
 export function coverageStatus(loaded: LoadedConfig) {
@@ -42,15 +44,19 @@ export function coverageStatus(loaded: LoadedConfig) {
 }
 
 /** Check whether running `add` more steps/flows fits the budget, and account for them if so. */
-export function budgetCheck(loaded: LoadedConfig, add: { steps: number; flows: number }): { ok: boolean; reason?: string } {
+export function budgetCheck(loaded: LoadedConfig, add: { steps: number; flow: string }): { ok: boolean; reason?: string } {
   const c = readCoverage(loaded);
   const { limits } = loaded.config;
   const minutes = (Date.now() - Date.parse(c.startedAt)) / 60000;
+  const names = new Set(c.flowNames ?? []);
+  const newFlow = !names.has(add.flow);
   if (minutes >= limits.maxMinutes) return { ok: false, reason: `time budget of ${limits.maxMinutes} min used` };
   if (c.stepsRun + add.steps > limits.maxSteps) return { ok: false, reason: `step budget of ${limits.maxSteps} used` };
-  if (c.flowsRun + add.flows > limits.maxFlows) return { ok: false, reason: `flow budget of ${limits.maxFlows} used` };
+  if (newFlow && names.size + 1 > limits.maxFlows) return { ok: false, reason: `flow budget of ${limits.maxFlows} distinct flows used` };
   c.stepsRun += add.steps;
-  c.flowsRun += add.flows;
+  if (newFlow) names.add(add.flow);
+  c.flowNames = [...names];
+  c.flowsRun = names.size;
   write(loaded, c);
   return { ok: true };
 }

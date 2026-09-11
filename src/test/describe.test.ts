@@ -65,3 +65,9 @@ test("renderTree prints one line per node with tap centres", () => {
   const out = renderTree(parseDescribe(ANDROID));
   assert.match(out, /button\s+"Super Like" #super-like-button \[clickable\] @\(0\.509, 0\.844\)/);
 });
+
+test("a bare-string selector tries the id first, then the text", () => {
+  const t = parseDescribe(IOS);
+  assert.equal(resolveSelector(t, { id: "like-button", text: "like-button", loose: true })!.id, "like-button");
+  assert.equal(resolveSelector(t, { id: "Nope", text: "Nope", loose: true })!.id, "nope-button");
+});

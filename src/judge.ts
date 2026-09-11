@@ -8,18 +8,19 @@ import path from "node:path";
 import type { LoadedConfig } from "./config.js";
 import { runDirFor } from "./lockstep.js";
 import { CATEGORIES, SEVERITIES, TAXONOMY } from "./taxonomy.js";
-import type { Candidate, Category, Pointer, RunOutput, Severity, Verdict } from "./types.js";
+import { meaningfulNodes } from "./describe.js";
+import type { Candidate, Category, Pointer, RunOutput, Severity, UiTree, Verdict } from "./types.js";
 
 export interface JudgeOptions { rulesOnly?: boolean; model?: string }
 
+/** Separator between signatures inside a verdict key (signatures themselves contain commas and pipes). */
+export const KEY_SEP = "\u001f";
+
 /** Identity of a difference independent of the flow it was found in: category + the elements it points at. */
 export function verdictKey(category: Category, cands: Candidate[]): string {
-  const elems = new Set<string>();
-  for (const c of cands) {
-    for (const p of c.pointers) elems.add(`${p.side}:${p.element?.id ?? p.element?.text ?? ""}`.toLowerCase());
-    if (c.kind === "outcome") elems.add(`outcome:${c.summary.toLowerCase()}`);
-  }
-  return `${category}|${[...elems].sort().join(",")}`;
+  // outcome signatures carry a step index and never match across flows; keep the stable ones
+  const sigs = cands.map((c) => c.signature).filter((s) => !s.startsWith("outcome:"));
+  return `${category}|${[...new Set(sigs)].sort().join(KEY_SEP)}`;
 }
 
 export function rulesVerdicts(candidates: Candidate[]): Verdict[] {
@@ -37,6 +38,31 @@ export function rulesVerdicts(candidates: Candidate[]): Verdict[] {
 
 export function claudeAvailable(): boolean {
   return spawnSync("claude", ["--version"], { encoding: "utf8" }).status === 0;
+}
+
+/**
+ * Import verdicts written by a human or an agent. Accepts `stepIndex` (0-based) or `step` (1-based)
+ * on pointers and `stepRange` in either base (values > number of steps are treated as 1-based).
+ */
+export function importVerdicts(items: unknown, output: RunOutput): Verdict[] {
+  if (!Array.isArray(items)) throw new Error("verdicts file must contain a JSON array");
+  const n = output.run.steps.length;
+  const normalised = items.map((it) => {
+    if (!it || typeof it !== "object") return it;
+    const v = { ...(it as Record<string, any>) };
+    if (Array.isArray(v.stepRange) && v.stepRange.length === 2) {
+      const [a, b] = v.stepRange.map(Number);
+      // sanitise() expects 1-based; a 0-based range that fits is shifted
+      if (b < n && (v.stepIndexBase === 0 || a === 0)) v.stepRange = [a + 1, b + 1];
+    }
+    if (Array.isArray(v.pointers)) v.pointers = v.pointers.map((p: any) => (p && typeof p === "object" && p.step === undefined && Number.isFinite(+p.stepIndex) ? { ...p, step: +p.stepIndex + 1 } : p));
+    return v;
+  });
+  const verdicts = sanitise(normalised, output);
+  for (const v of verdicts) v.judge = "human";
+  const covered = new Set(verdicts.flatMap((v) => v.candidateIds));
+  for (const r of rulesVerdicts(output.candidates)) if (!covered.has(r.candidateIds[0])) verdicts.push(r);
+  return verdicts;
 }
 
 export async function judgeRun(loaded: LoadedConfig, output: RunOutput, log: (s: string) => void, opts: JudgeOptions = {}): Promise<Verdict[]> {
@@ -66,16 +92,25 @@ function buildBrief(loaded: LoadedConfig, output: RunOutput): string {
   const steps = run.steps
     .map((s) => `${String(s.index + 1).padStart(2)}. ${s.label}  [ios: ${s.ios.status}${s.ios.reason ? ` – ${s.ios.reason}` : ""}; android: ${s.android.status}${s.android.reason ? ` – ${s.android.reason}` : ""}]`)
     .join("\n");
+  const shotSteps = new Set<number>();
   const cands = candidates
     .map((c) => {
-      const shots = [...new Set(c.steps)]
-        .slice(0, 3)
-        .map((i) => {
-          const st = run.steps[i];
-          return `   step ${i + 1}: ios ${st.ios.screenshot ? path.join(runDir, st.ios.screenshot) : "(none)"} | android ${st.android.screenshot ? path.join(runDir, st.android.screenshot) : "(none)"}`;
-        })
-        .join("\n");
-      return `- ${c.id} [${c.kind}] steps ${c.steps.map((i) => i + 1).join(",")}: ${c.summary}\n   ${c.detail}\n${shots}`;
+      for (const i of c.steps.slice(0, 2)) shotSteps.add(i);
+      return `- ${c.id} [${c.kind}] steps ${c.steps.map((i) => i + 1).join(",")}: ${c.summary}\n   ${c.detail}`;
+    })
+    .join("\n");
+  const excerpt = (tree: UiTree | undefined) =>
+    tree
+      ? meaningfulNodes(tree)
+          .slice(0, 30)
+          .map((n) => `${n.role} ${n.text ? JSON.stringify(n.text) : ""}${n.id ? ` #${n.id}` : ""}${n.flags.length ? ` [${n.flags.join(",")}]` : ""}`)
+          .join("; ")
+      : "(no tree)";
+  const evidence = [...shotSteps]
+    .sort((a, b) => a - b)
+    .map((i) => {
+      const st = run.steps[i];
+      return `step ${i + 1} (${st.label})\n  ios screenshot: ${st.ios.screenshot ? path.join(runDir, st.ios.screenshot) : "(none)"}\n  ios tree: ${excerpt(st.ios.tree)}\n  android screenshot: ${st.android.screenshot ? path.join(runDir, st.android.screenshot) : "(none)"}\n  android tree: ${excerpt(st.android.tree)}`;
     })
     .join("\n");
   const extra = loaded.config.judgeRules.length ? `\n## Project-specific rules\n${loaded.config.judgeRules.map((r) => `- ${r}`).join("\n")}\n` : "";
@@ -94,6 +129,9 @@ ${steps}
 
 ## Candidates
 ${cands}
+
+## Evidence per step (trees are abbreviated; read the screenshots when in doubt)
+${evidence}
 
 ${TAXONOMY}
 ${extra}
@@ -121,9 +159,9 @@ Use element ids or exact visible text that appear in the candidates. Keep labels
 
 function runClaude(prompt: string, model?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const args = ["-p", "--output-format", "json", "--allowedTools", "Read", "--max-turns", "16"];
+    const args = ["-p", "--output-format", "json", "--allowedTools", "Read", "--max-turns", "40"];
     if (model) args.push("--model", model);
-    const child = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CLAUDE_CODE_CHILD_SESSION: "1" } });
+    const child = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CLAUDE_CODE_CHILD_SESSION: "1" }, shell: process.platform === "win32" });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
@@ -169,17 +207,21 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
     const candidateIds = (Array.isArray(v.candidateIds) ? v.candidateIds : []).filter((id: unknown) => typeof id === "string" && ids.has(id) && !seen.has(id));
     if (!candidateIds.length) continue;
     for (const id of candidateIds) seen.add(id);
-    const category: Category = CATEGORIES.includes(v.category) ? v.category : "behaviour";
-    let severity: Severity = SEVERITIES.includes(v.severity) ? v.severity : "medium";
+    // an unrecognised category or severity must not turn into a reported difference
+    const catRaw = String(v.category ?? "").toLowerCase().replace(/[\s_]+/g, "-");
+    const category: Category = CATEGORIES.includes(catRaw as Category) ? (catRaw as Category) : "noise";
+    const sevRaw = String(v.severity ?? "").toLowerCase();
+    let severity: Severity = SEVERITIES.includes(sevRaw as Severity) ? (sevRaw as Severity) : "ignore";
     if (category === "noise" || category === "platform-idiom") severity = "ignore";
     const cands = candidateIds.map((id: string) => byId.get(id)!);
     const allSteps = cands.flatMap((c) => c.steps);
     let range: [number, number] = [Math.max(0, Math.min(...allSteps) - 1), Math.max(...allSteps)];
+    const lastRan = Math.max(0, ...output.run.steps.filter((st) => st.ios.endMs > 0 || st.android.endMs > 0).map((st) => st.index));
     if (Array.isArray(v.stepRange) && v.stepRange.length === 2 && Number.isFinite(+v.stepRange[0]) && Number.isFinite(+v.stepRange[1])) {
-      const a = Math.min(n - 1, Math.max(0, Math.round(+v.stepRange[0]) - 1));
-      const b = Math.min(n - 1, Math.max(a, Math.round(+v.stepRange[1]) - 1));
+      const a = Math.min(lastRan, Math.max(0, Math.round(+v.stepRange[0]) - 1));
+      const b = Math.min(lastRan, Math.max(a, Math.round(+v.stepRange[1]) - 1));
       range = [a, b];
-    }
+    } else range = [Math.min(range[0], lastRan), Math.min(range[1], lastRan)];
     const pointers: Pointer[] = [];
     if (Array.isArray(v.pointers)) {
       for (const p of v.pointers) {

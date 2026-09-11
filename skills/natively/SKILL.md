@@ -41,8 +41,9 @@ natively screen <name> --note "what it is"    # register a screen you reached on
 Rules of exploration:
 
 - Reach each screen on both sides, then `natively screen <name>`. That records coverage, saves
-  both trees and screenshots under `natively-out/screens/`, and enforces the budget. When the
-  output says `exhausted: true`, stop authoring and run what you have.
+  both trees and screenshots under `natively-out/screens/`, and refuses (exit code 2) once the
+  screen budget is used. When `natively status` says `exhausted: true`, stop authoring and run
+  what you have.
 - Keep a coverage map in your head (or a scratch file): screen → controls seen → controls
   exercised. A control is "done" when a flow exercises it. Every interactive element in both trees
   should end up in some flow: buttons, switches, segments, list rows, text fields, swipes on cards.
@@ -57,8 +58,10 @@ Rules of exploration:
 
 ## 2. Write one flow per feature
 
-Flows live in the `flows/` directory (see config) as Argent-compatible YAML plus `title` and
-`description`:
+Flows live in the `flows/` directory (see config). They use Argent's flow step syntax (subset: no
+relational selectors such as `within:`/`after:`, no `snapshot:`), plus two natively-only top-level
+keys `title` and `description` (Argent's own `argent flow run` rejects unknown top-level keys, so
+remove them if you ever replay a flow there):
 
 ```yaml
 title: Send a message to a match
@@ -81,10 +84,15 @@ steps:
   - await: { visible: { text: Hello } }
 ```
 
-Directives: `launch`, `tap` (selector, `{on, times}` or `{x, y}`), `long-press`, `swipe`
-(`up|down|left|right` or `{direction, from}`), `type {into, text, submit}`, `scroll-to {target,
-direction}`, `await {visible|exists|hidden|idle, timeout}`, `assert`, `wait <ms>`, `echo`,
-`button <home|back>`, `when {platform} + steps`, `tool <argent tool> + args`.
+Directives: `launch` (bundle id, or `{ ios: …, android: … }`), `tap` (selector, `{on, times}` or
+`{x, y}`), `long-press {on, duration}`, `swipe` (`up|down|left|right` or `{direction, from, duration}`;
+the direction is the finger's travel), `type {into, text, submit}`, `scroll-to {target, direction,
+maxSwipes}`, `await` / `assert` with a condition — `{ visible: sel }`, `{ exists: sel }`,
+`{ hidden: sel }`, `{ idle: true }`, `{ text: { in: sel, contains|equals|matches: "…" } }` — plus
+`timeout` (ms) on `await`, `wait <ms>`, `echo <message>`, `button <home|back>`,
+`when: { platform: ios|android }` with nested `steps:`, `tool: <argent tool>` with `args:`.
+Selectors: `{ id }`, `{ text }` (case-insensitive substring), `{ text: { matches: regex } }`,
+`{ role }`, or a bare string (id first, then text).
 
 Guidelines that make the diff useful:
 
@@ -104,6 +112,7 @@ Guidelines that make the diff useful:
 natively compare                   # all flows: lockstep run + diff + judge + videos + report
 natively compare chat-send --fresh # one flow, reinstalling both apps first
 natively judge chat-send           # re-judge a run (e.g. after editing judgeRules in the config)
+natively judge chat-send --rules  # rule-based only (no LLM): every candidate becomes a "needs review" item
 natively judge chat-send --from verdicts.json   # import verdicts you wrote by hand (schema below)
 natively render chat-send          # re-render the side-by-side videos
 natively report                    # rebuild natively-out/report/index.html
@@ -122,8 +131,12 @@ not installed (rule-based verdicts report everything), write `verdicts.json` you
    "judge": "human" }]
 ```
 
-`stepRange` and `stepIndex` are 0-based here (the judge prompt uses 1-based). Pointers are all you
-supply for the callouts; natively draws the uniform branded highlight, label and ghost marker.
+`stepRange` and `stepIndex` are 0-based here (`step`, 1-based, is also accepted on pointers, as in
+the judge prompt). Imports are validated the same way as judge output: unknown categories become
+noise, candidate ids must exist, and candidates you do not mention keep a rule-based verdict marked
+"needs review". Pointers are all you supply for the callouts; natively draws the uniform branded
+highlight, label and ghost marker. Elements are looked up in the named step's tree (and the
+neighbouring steps); a pointer that resolves nowhere is logged and skipped.
 
 ## 4. Finish
 

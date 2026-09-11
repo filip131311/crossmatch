@@ -41,10 +41,50 @@ test("controls on one side, differing text for one id, state flags and outcomes 
   const kinds = c.map((x) => `${x.kind}:${x.summary}`);
   assert.ok(kinds.some((k) => k.startsWith('elements:Control "Super Like" (#super-like-button) exists only on Android')), kinds.join("\n"));
   assert.ok(kinds.some((k) => k.includes('#distance-value reads "10 km" on iOS but "10 mi" on Android')));
-  assert.ok(kinds.some((k) => k.includes("#send-button") && k.includes("disabled on ios")));
+  assert.ok(kinds.some((k) => k.includes("#send-button") && k.includes("disabled on iOS")));
   assert.ok(kinds.some((k) => k.startsWith("outcome:")));
   const superLike = c.find((x) => x.summary.includes("Super Like"))!;
   assert.deepEqual(superLike.steps, [0, 1], "same difference in two steps is one candidate");
   assert.equal(superLike.pointers[0].side, "android");
   assert.equal(superLike.pointers[0].element?.id, "super-like-button");
+});
+
+test("keyboard keys are ignored only when a keyboard is on screen; app buttons with short labels survive", () => {
+  const keys = Array.from({ length: 14 }, (_, k) => `  AXButton "${String.fromCharCode(97 + k)}"  (${(0.05 + k * 0.06).toFixed(2)}, 0.80, 0.05, 0.05)`).join("\n");
+  const withKeyboard = ios(`  AXButton "Send" id="send-button"  (0.8, 0.6, 0.1, 0.04)\n  AXGroup "Typing Predictions"  (0.0, 0.70, 1.0, 0.05)\n  AXButton "hello"  (0.1, 0.71, 0.2, 0.03)\n${keys}`);
+  const android = and(`  Button "Send" id="send-button" [clickable]  (0.8, 0.6, 0.1, 0.04)\n  Button "Delete / Done / Show emoji keyboard / More stylus options" [clickable]  (0.0, 0.9, 1.0, 0.05)`);
+  const r = run([{ ios: { status: "pass", startMs: 0, endMs: 0, tree: withKeyboard }, android: { status: "pass", startMs: 0, endMs: 0, tree: android } }]);
+  assert.deepEqual(diffRun(r), [], "keyboard rows, prediction bar and IME toolbar are chrome");
+  // no keyboard on screen: a lone "+" or "Delete" button is app content
+  const r2 = run([{ ios: { status: "pass", startMs: 0, endMs: 0, tree: ios(`  AXButton "+" id="add"  (0.8, 0.3, 0.1, 0.04)\n  AXButton "Delete"  (0.1, 0.5, 0.2, 0.04)`) }, android: { status: "pass", startMs: 0, endMs: 0, tree: and(`  StaticText "Nothing"  (0.1, 0.1, 0.3, 0.04)`) } }]);
+  const s2 = diffRun(r2).map((c) => c.summary);
+  assert.ok(s2.some((x) => x.includes("#add")), s2.join("\n"));
+  assert.ok(s2.some((x) => x.includes('"Delete" exists only on iOS')), s2.join("\n"));
+});
+
+test("a one-sided failure yields one outcome candidate, not one per skipped step", () => {
+  const r = run([
+    { ios: { status: "pass", startMs: 0, endMs: 10 }, android: { status: "fail", reason: "no element", startMs: 0, endMs: 10 } },
+    { ios: { status: "pass", startMs: 0, endMs: 20 }, android: { status: "skip", startMs: 0, endMs: 0 } },
+    { ios: { status: "pass", startMs: 0, endMs: 30 }, android: { status: "skip", startMs: 0, endMs: 0 } },
+  ]);
+  const c = diffRun(r);
+  assert.equal(c.filter((x) => x.kind === "outcome").length, 1);
+  assert.match(c[0].summary, /passes on iOS but fails on Android/);
+});
+
+test("same rows in a different order are reported once", () => {
+  const rows = (order: string[]) => order.map((id, k) => `  View "${id}" id="match-row-${id}" [clickable]  (0.0, ${(0.2 + k * 0.1).toFixed(2)}, 1.0, 0.08)`).join("\n");
+  const r = run([{ ios: { status: "pass", startMs: 0, endMs: 0, tree: ios(rows(["biscuit", "luna"]).replace(/View/g, "AXButton").replace(/ \[clickable\]/g, "")) }, android: { status: "pass", startMs: 0, endMs: 0, tree: and(rows(["luna", "biscuit"])) } }]);
+  const c = diffRun(r);
+  assert.equal(c.length, 1, c.map((x) => x.summary).join("\n"));
+  assert.match(c[0].summary, /ordered biscuit, luna on iOS but luna, biscuit on Android/);
+});
+
+test("the same changing value is one candidate across steps, keyed by its element", () => {
+  const mk = (v: string, side: "ios" | "android") => (side === "ios" ? ios(`  AXStaticText "${v} km" id="distance-value"  (0.5, 0.3, 0.1, 0.04)`) : and(`  StaticText "${v} mi" id="distance-value"  (0.5, 0.3, 0.1, 0.04)`));
+  const r = run([10, 11, 12].map((v) => ({ ios: { status: "pass" as const, startMs: 0, endMs: 0, tree: mk(String(v), "ios") }, android: { status: "pass" as const, startMs: 0, endMs: 0, tree: mk(String(v), "android") } })));
+  const c = diffRun(r);
+  assert.equal(c.length, 1, c.map((x) => x.summary).join("\n"));
+  assert.deepEqual(c[0].steps, [0, 1, 2]);
 });

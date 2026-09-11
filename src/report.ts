@@ -4,6 +4,8 @@ import path from "node:path";
 import type { LoadedConfig } from "./config.js";
 import { outDir } from "./config.js";
 import { readCoverage } from "./coverage.js";
+import { diffRun } from "./diff.js";
+import { KEY_SEP, verdictKey } from "./judge.js";
 import { TAXONOMY } from "./taxonomy.js";
 import type { RunOutput, Severity, Verdict } from "./types.js";
 
@@ -28,21 +30,44 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
   fs.mkdirSync(dir, { recursive: true });
   const items: Item[] = [];
   for (const r of runs) {
+    // Keys are recomputed so grouping stays consistent when the diff evolves. Stored candidates keep
+    // the ids the judge used; a candidate saved without a signature gets it from a fresh diff by summary.
+    const fresh = diffRun(r.run);
+    const cands = new Map(
+      r.candidates.map((c) => [c.id, { ...c, signature: c.signature ?? fresh.find((f) => f.summary === c.summary)?.signature ?? `summary:${c.summary}` }]),
+    );
     for (const v of r.verdicts ?? []) {
+      const own = v.candidateIds.map((id) => cands.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
+      if (own.length) v.key = verdictKey(v.category, own);
       const [a, b] = v.stepRange;
       items.push({ flow: r.run.flow, run: r.run.flow.name, verdict: v, steps: r.run.steps.slice(a, b + 1).map((s) => `${s.index + 1}. ${s.label}`), alsoIn: [] });
     }
   }
-  // the same difference found by several flows is reported once, with the other flows listed
-  const byKey = new Map<string, Item>();
+  // The same difference found by several flows is reported once (highest severity first), with the
+  // other flows listed. Two verdicts are the same difference when they share a category and at least
+  // one candidate signature (`category|sig,sig,...` keys).
+  const claimed = new Map<string, Item>();
   for (const it of [...items]) {
     const k = it.verdict.key;
     if (!k || it.verdict.severity === "ignore") continue;
-    const first = byKey.get(k);
-    if (first && first.verdict.video) {
-      first.alsoIn.push(it);
-      items.splice(items.indexOf(it), 1);
-    } else byKey.set(k, it);
+    const [category, sigs] = k.split("|");
+    const parts = sigs ? sigs.split(KEY_SEP).filter(Boolean).map((sg) => `${category}|${sg}`) : [];
+    const owner = parts.map((pt) => claimed.get(pt)).find((o) => o && o !== it);
+    if (owner) {
+      // keep the entry that has a video as the primary card
+      if (!owner.verdict.video && it.verdict.video) {
+        items.splice(items.indexOf(it), 1);
+        items.splice(items.indexOf(owner), 1, it);
+        it.alsoIn.push(owner, ...owner.alsoIn);
+        for (const pt of parts) claimed.set(pt, it);
+        for (const [k, o] of claimed) if (o === owner) claimed.set(k, it);
+      } else {
+        owner.alsoIn.push(it);
+        items.splice(items.indexOf(it), 1);
+      }
+      continue;
+    }
+    for (const pt of parts) if (!claimed.has(pt)) claimed.set(pt, it);
   }
   items.sort((x, y) => ORDER.indexOf(x.verdict.severity) - ORDER.indexOf(y.verdict.severity));
   const real = items.filter((i) => i.verdict.severity !== "ignore");
@@ -54,7 +79,7 @@ export function writeReport(loaded: LoadedConfig, log: (s: string) => void): str
     const v = it.verdict;
     const video = v.video ? `<video controls preload="metadata" src="../runs/${esc(it.run)}/${esc(v.video)}"></video>` : `<p class="muted">No video rendered for this difference.</p>`;
     return `<article class="diff" id="d${i + 1}">
-  <header><span class="sev ${v.severity}">${v.severity}</span><span class="cat">${esc(v.category.replace("-", " "))}</span><span class="flow">${esc(it.flow.title ?? it.flow.name)}</span></header>
+  <header><span class="sev ${v.severity}">${v.severity}</span><span class="cat">${esc(v.category.replace("-", " "))}</span>${v.judge === "rules" ? `<span class="review">needs review · rule-based, not judged</span>` : ""}<span class="flow">${esc(it.flow.title ?? it.flow.name)}</span></header>
   <h2>${i + 1}. ${esc(v.title)}</h2>
   <p>${esc(v.description)}</p>
   ${video}
@@ -73,6 +98,7 @@ main{max-width:1180px;margin:0 auto;padding:24px 32px 64px}
 .summary{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 28px}.summary div{background:#fff;border-radius:12px;padding:12px 18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}.summary b{display:block;font-size:26px}
 .diff{background:#fff;border-radius:16px;padding:20px 24px;margin:0 0 22px;box-shadow:0 1px 4px rgba(0,0,0,.08)}.diff header{display:flex;gap:10px;align-items:center;font-size:13px}.diff h2{margin:8px 0 6px;font-size:22px}
 .sev{padding:2px 10px;border-radius:8px;color:#fff;font-weight:700;text-transform:uppercase;font-size:12px}.sev.high{background:#E5484D}.sev.medium{background:#F5A524}.sev.low{background:#3E8BFF}.sev.ignore{background:#9AA0A6}
+.review{padding:2px 10px;border-radius:8px;background:#FFF3CD;color:#7A5A00;font-weight:600}
 .cat{padding:2px 10px;border-radius:8px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent);font-weight:600}.flow{color:#666}
 video{width:100%;max-height:70vh;border-radius:12px;background:#000;margin:10px 0}details{margin-top:8px}summary{cursor:pointer;font-weight:600}.muted{color:#777;font-size:14px}
 table{border-collapse:collapse;width:100%;background:#fff;border-radius:12px;overflow:hidden}td,th{text-align:left;padding:8px 12px;border-bottom:1px solid #eee;font-size:14px}

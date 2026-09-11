@@ -44,9 +44,12 @@ export function parseDescribe(raw: string): UiTree {
     }
     const fl = /\[([^\]]+)\]/.exec(body);
     if (fl) flags.push(...fl[1].split(",").map((s) => s.trim()).filter(Boolean));
+    // iOS reports switch state as a value ("1"/"0", "On"/"Off"); Android as a checked flag
+    if (value !== undefined && /^(1|on|true|checked|selected)$/i.test(value.trim()) && !flags.includes("checked")) flags.push("checked");
+    const switchLike = value !== undefined && /^(0|1|on|off|true|false)$/i.test(value.trim()) && /Button|Switch|Toggle/i.test(rawRole);
     const depth = Math.max(0, Math.floor(indent.length / 2) - 1);
     nodes.push({
-      role: normaliseRole(rawRole, flags),
+      role: switchLike ? "switch" : normaliseRole(rawRole, flags),
       rawRole,
       label,
       value,
@@ -100,8 +103,9 @@ export function meaningfulNodes(tree: UiTree): UiNode[] {
 }
 
 export function selectorMatches(node: UiNode, sel: Selector): boolean {
+  if (sel.loose) return selectorMatches(node, { id: sel.id }) || selectorMatches(node, { text: sel.text });
   if (sel.id !== undefined && (node.id ?? "").toLowerCase() !== sel.id.toLowerCase()) return false;
-  if (sel.matches !== undefined && !new RegExp(sel.matches, "i").test(node.text)) return false;
+  if (sel.matches !== undefined && !new RegExp(sel.matches).test(node.text)) return false;
   if (sel.text !== undefined && !node.text.toLowerCase().includes(sel.text.toLowerCase())) return false;
   if (sel.role !== undefined) {
     const r = sel.role.toLowerCase();
@@ -115,6 +119,7 @@ export function selectorMatches(node: UiNode, sel: Selector): boolean {
  * frame, then reading order. Mirrors Argent's flow runner rule.
  */
 export function resolveSelector(tree: UiTree, sel: Selector): UiNode | undefined {
+  if (sel.loose) return resolveSelector(tree, { id: sel.id }) ?? resolveSelector(tree, { text: sel.text });
   const visible = tree.nodes.filter((n) => n.frame.width > 0 && n.frame.height > 0 && selectorMatches(n, sel));
   if (visible.length === 0) return undefined;
   const exact = visible.filter((n) => {

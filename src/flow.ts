@@ -1,16 +1,26 @@
 /**
- * Flow files are Argent flow YAML (a compatible subset) so they can also be replayed with
- * `argent flow run`. natively adds two optional top-level keys: `title` and `description`.
+ * Flow files use Argent's flow YAML step syntax (a subset: no relational selectors, no snapshots).
+ * natively adds two optional top-level keys, `title` and `description`; Argent's own runner rejects
+ * unknown top-level keys, so strip them (or move them into a leading `echo:`) to replay a flow with
+ * `argent flow run`.
  */
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import type { Condition, Directive, Flow, FlowStep, Selector, Side } from "./types.js";
 
+const SELECTOR_KEYS = new Set(["id", "identifier", "text", "role"]);
+const UNSUPPORTED_SELECTOR_KEYS = new Set(["within", "after", "next", "any"]);
+
 function toSelector(v: unknown, ctx: string): Selector {
-  if (typeof v === "string") return { text: v, ...(looksLikeId(v) ? { id: v } : {}) };
+  // a bare string is loose: Argent tries id first, then text
+  if (typeof v === "string") return { id: v, text: v, loose: true };
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
+    for (const k of Object.keys(o)) {
+      if (UNSUPPORTED_SELECTOR_KEYS.has(k)) throw new Error(`${ctx}: relational selector "${k}:" is not supported by natively; name the element by id or text`);
+      if (!SELECTOR_KEYS.has(k)) throw new Error(`${ctx}: unknown selector key "${k}"`);
+    }
     const sel: Selector = {};
     const id = o.id ?? o.identifier;
     if (typeof id === "string") sel.id = id;
@@ -23,10 +33,6 @@ function toSelector(v: unknown, ctx: string): Selector {
   throw new Error(`${ctx}: invalid selector ${JSON.stringify(v)}`);
 }
 
-function looksLikeId(s: string): boolean {
-  return /^[a-z0-9_-]+$/i.test(s) && s.includes("-");
-}
-
 function toCondition(o: Record<string, unknown>, ctx: string): Condition {
   if (o.idle) return { type: "idle" };
   if (o.visible !== undefined) return { type: "visible", selector: toSelector(o.visible, ctx) };
@@ -34,10 +40,11 @@ function toCondition(o: Record<string, unknown>, ctx: string): Condition {
   if (o.hidden !== undefined) return { type: "hidden", selector: toSelector(o.hidden, ctx) };
   if (o.text !== undefined) {
     const t = o.text as Record<string, unknown>;
-    const sel = toSelector(t.selector ?? t.of ?? t, ctx);
-    const expected = t.equals ?? t.contains ?? t.expected;
-    if (typeof expected !== "string") throw new Error(`${ctx}: text condition needs { of: <selector>, equals|contains: <string> }`);
-    return { type: "text", selector: sel, expected };
+    const sel = toSelector(t.in ?? t.of ?? t.selector, `${ctx} text condition`);
+    const match: "contains" | "equals" | "matches" = t.equals !== undefined ? "equals" : t.matches !== undefined ? "matches" : "contains";
+    const expected = t.equals ?? t.matches ?? t.contains;
+    if (typeof expected !== "string") throw new Error(`${ctx}: text condition needs { in: <selector>, equals|contains|matches: <string> }`);
+    return { type: "text", selector: sel, expected, match };
   }
   throw new Error(`${ctx}: unknown condition ${JSON.stringify(o)}`);
 }
@@ -50,9 +57,18 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
   const key = keys[0];
   const v = o[key];
   switch (key) {
-    case "launch":
+    case "launch": {
       if (typeof v === "string") return { kind: "launch", bundleId: v };
+      if (v && typeof v === "object") {
+        const m = v as Record<string, unknown>;
+        const perPlatform: Partial<Record<Side, string>> = {};
+        if (typeof m.ios === "string") perPlatform.ios = m.ios;
+        if (typeof m.android === "string") perPlatform.android = m.android;
+        if (typeof m.native === "string") perPlatform.ios = perPlatform.android = m.native;
+        return { kind: "launch", perPlatform };
+      }
       return { kind: "launch" };
+    }
     case "tap": {
       if (v && typeof v === "object" && "x" in (v as object) && "y" in (v as object)) {
         const t = v as any;
@@ -72,9 +88,15 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
       return { kind: "long-press", selector: toSelector(v, ctx) };
     }
     case "swipe": {
-      if (typeof v === "string") return { kind: "swipe", direction: v as any };
-      const s = v as any;
-      return { kind: "swipe", direction: s.direction, from: s.from ? toSelector(s.from, ctx) : undefined, duration: s.duration };
+      const DIRS = ["up", "down", "left", "right"];
+      if (typeof v === "string") {
+        if (!DIRS.includes(v)) throw new Error(`${ctx}: swipe direction must be up|down|left|right`);
+        return { kind: "swipe", direction: v as any };
+      }
+      const s = v as Record<string, unknown>;
+      for (const k of Object.keys(s)) if (!["direction", "from", "duration"].includes(k)) throw new Error(`${ctx}: swipe "${k}:" is not supported by natively (use direction, from, duration)`);
+      if (!DIRS.includes(String(s.direction))) throw new Error(`${ctx}: swipe needs direction up|down|left|right`);
+      return { kind: "swipe", direction: s.direction as any, from: s.from ? toSelector(s.from, ctx) : undefined, duration: typeof s.duration === "number" ? s.duration : undefined };
     }
     case "type": {
       const t = v as any;
@@ -142,7 +164,7 @@ export function listFlows(dir: string): string[] {
 export function stepLabel(d: Directive): string {
   switch (d.kind) {
     case "launch":
-      return `launch ${d.bundleId ?? "app"}`;
+      return `launch ${d.bundleId ?? (d.perPlatform ? Object.values(d.perPlatform).join(" / ") : "app")}`;
     case "tap":
       return d.selector ? `tap ${sel(d.selector)}` : `tap (${d.x}, ${d.y})`;
     case "long-press":
@@ -171,6 +193,7 @@ export function stepLabel(d: Directive): string {
 }
 
 function sel(s: Selector): string {
+  if (s.loose) return `"${s.text}"`;
   if (s.id) return `#${s.id}`;
   if (s.text) return `"${s.text}"`;
   if (s.matches) return `/${s.matches}/`;
@@ -182,7 +205,7 @@ function cond(c: Condition): string {
     case "idle":
       return "idle";
     case "text":
-      return `${sel(c.selector)} has text "${c.expected}"`;
+      return `${sel(c.selector)} text ${c.match} "${c.expected}"`;
     default:
       return `${c.type} ${sel(c.selector)}`;
   }

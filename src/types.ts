@@ -68,10 +68,18 @@ export interface UiTree {
   raw: string;
 }
 
-export interface Selector { id?: string; text?: string; role?: string; matches?: string }
+export interface Selector {
+  id?: string;
+  text?: string;
+  role?: string;
+  /** Regular expression on the text (case-sensitive, like Argent). */
+  matches?: string;
+  /** A bare-string selector: try `id` first, then `text` (Argent's loose semantics). */
+  loose?: boolean;
+}
 
 export type Directive =
-  | { kind: "launch"; bundleId?: string }
+  | { kind: "launch"; bundleId?: string; perPlatform?: Partial<Record<Side, string>> }
   | { kind: "tap"; selector?: Selector; x?: number; y?: number; times?: number }
   | { kind: "long-press"; selector: Selector; duration?: number }
   | { kind: "swipe"; direction: "up" | "down" | "left" | "right"; from?: Selector; duration?: number }
@@ -89,7 +97,7 @@ export type Condition =
   | { type: "visible"; selector: Selector }
   | { type: "exists"; selector: Selector }
   | { type: "hidden"; selector: Selector }
-  | { type: "text"; selector: Selector; expected: string }
+  | { type: "text"; selector: Selector; expected: string; match: "contains" | "equals" | "matches" }
   | { type: "idle" };
 
 export interface FlowStep { index: number; directive: Directive; raw: unknown }
@@ -116,6 +124,10 @@ export interface StepSideResult {
   tree?: UiTree;
   /** Screenshot after the step, relative to the run directory. */
   screenshot?: string;
+  /** Fraction of pixels (0..1) that changed between the previous step's screenshot and this one. */
+  screenChange?: number;
+  /** Set when the tree or screenshot after this step could not be captured. */
+  captureError?: string;
 }
 
 export interface StepResult {
@@ -134,6 +146,7 @@ export interface RunRecord {
   video: Record<Side, { file: string; durationMs: number; width: number; height: number }>;
   steps: StepResult[];
   ok: boolean;
+  captureErrors?: string[];
 }
 
 export type Category =
@@ -166,6 +179,8 @@ export interface Candidate {
   /** Every step where the same difference shows. */
   steps: number[];
   kind: "outcome" | "elements" | "flags" | "text";
+  /** Flow-independent identity of what differs (e.g. `only-android:#super-like-button`). */
+  signature: string;
   summary: string;
   detail: string;
   pointers: Pointer[];

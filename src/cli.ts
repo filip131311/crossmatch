@@ -11,14 +11,24 @@ import { listDevices, resolveBothDevices, pinStatusBar } from "./devices.js";
 import { listFlows, parseFlow } from "./flow.js";
 import { runFlowLockstep, runDirFor } from "./lockstep.js";
 import { diffRun } from "./diff.js";
-import { judgeRun } from "./judge.js";
+import { importVerdicts, judgeRun } from "./judge.js";
 import { renderRun } from "./compose.js";
 import { writeReport } from "./report.js";
 import { SideSession } from "./runner.js";
+import { refreshScreenChange } from "./pixels.js";
 import { coverageAdd, coverageStatus, budgetCheck } from "./coverage.js";
 import type { RunOutput, Side } from "./types.js";
 
 const log = (s: string) => console.error(s);
+
+/** output.json when present, else a run.json that never got judged. */
+function loadRunOutput(runDir: string): RunOutput {
+  const out = path.join(runDir, "output.json");
+  if (fs.existsSync(out)) return JSON.parse(fs.readFileSync(out, "utf8"));
+  const run = path.join(runDir, "run.json");
+  if (!fs.existsSync(run)) throw new Error(`No run found in ${runDir}: run \`natively compare\` first`);
+  return { run: JSON.parse(fs.readFileSync(run, "utf8")), candidates: [] };
+}
 const program = new Command();
 program.name("natively").description("Find and document behavioural differences between an iOS app and its Android twin.").version("0.1.0");
 program.option("-c, --config <file>", `path to ${CONFIG_FILE}`);
@@ -166,8 +176,9 @@ program
       fs.writeFileSync(path.join(dir, `${name}-${side}.txt`), renderTree(tree));
       result[side] = { screenshot: shot, elements: tree.nodes.length };
     }
-    const status = coverageAdd(loaded, name, o.note);
-    console.log(JSON.stringify({ registered: name, ...result, budget: status }, null, 2));
+    const reg = coverageAdd(loaded, name, o.note);
+    console.log(JSON.stringify({ screen: name, registered: reg.registered, ...(reg.reason ? { reason: reg.reason } : {}), ...result, budget: reg.status }, null, 2));
+    if (!reg.registered) process.exit(2);
   });
 
 program
@@ -190,30 +201,49 @@ program
     if (!files.length) throw new Error(`No flows found in ${flowsDir(loaded)}`);
     const client = await connectArgent();
     const devices = await resolveBothDevices(client, loaded, log);
+    const failures: string[] = [];
     for (const file of files) {
-      const flow = parseFlow(file);
-      const budget = budgetCheck(loaded, { steps: flow.steps.length, flows: 1 });
-      if (!budget.ok) {
-        log(`Budget exhausted (${budget.reason}); skipping ${flow.name}. Raise limits in ${CONFIG_FILE} to continue.`);
-        continue;
+      let flowName = path.basename(file);
+      try {
+        const flow = parseFlow(file);
+        flowName = flow.name;
+        const budget = budgetCheck(loaded, { steps: flow.steps.length, flow: flow.name });
+        if (!budget.ok) {
+          log(`Budget exhausted (${budget.reason}); skipping ${flow.name}. Raise limits in ${CONFIG_FILE} to continue.`);
+          continue;
+        }
+        log(`\n=== ${flow.name}${flow.title ? ` — ${flow.title}` : ""}`);
+        const run = await runFlowLockstep(client, loaded, devices, flow, { fresh: o.fresh, log });
+        const candidates = diffRun(run);
+        const output: RunOutput = { run, candidates };
+        const runDir = runDirFor(loaded, flow.name);
+        const save = () => fs.writeFileSync(path.join(runDir, "output.json"), JSON.stringify(output, null, 2));
+        fs.writeFileSync(path.join(runDir, "candidates.json"), JSON.stringify(candidates, null, 2));
+        save();
+        log(`${candidates.length} candidate difference(s)`);
+        for (const c of candidates) log(`  [${c.kind}] step ${c.stepIndex + 1}: ${c.summary}`);
+        if (o.judge && candidates.length) {
+          output.verdicts = await judgeRun(loaded, output, log);
+          fs.writeFileSync(path.join(runDir, "verdicts.json"), JSON.stringify(output.verdicts, null, 2));
+          save();
+          for (const v of output.verdicts) log(`  ${v.severity.toUpperCase().padEnd(6)} ${v.category.padEnd(15)} ${v.title}`);
+          if (o.render) {
+            await renderRun(loaded, output, log);
+            save();
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        failures.push(`${flowName}: ${msg}`);
+        log(`!! ${flowName} failed: ${msg}`);
       }
-      log(`\n=== ${flow.name}${flow.title ? ` — ${flow.title}` : ""}`);
-      const run = await runFlowLockstep(client, loaded, devices, flow, { fresh: o.fresh, log });
-      const candidates = diffRun(run);
-      const output: RunOutput = { run, candidates };
-      const runDir = runDirFor(loaded, flow.name);
-      fs.writeFileSync(path.join(runDir, "candidates.json"), JSON.stringify(candidates, null, 2));
-      log(`${candidates.length} candidate difference(s)`);
-      for (const c of candidates) log(`  [${c.kind}] step ${c.stepIndex + 1}: ${c.summary}`);
-      if (o.judge && candidates.length) {
-        output.verdicts = await judgeRun(loaded, output, log);
-        fs.writeFileSync(path.join(runDir, "verdicts.json"), JSON.stringify(output.verdicts, null, 2));
-        for (const v of output.verdicts) log(`  ${v.severity.toUpperCase().padEnd(6)} ${v.category.padEnd(15)} ${v.title}`);
-        if (o.render) await renderRun(loaded, output, log);
-      }
-      fs.writeFileSync(path.join(runDir, "output.json"), JSON.stringify(output, null, 2));
     }
     writeReport(loaded, log);
+    if (failures.length) {
+      log(`\n${failures.length} flow(s) did not complete:`);
+      for (const f of failures) log(`  ${f}`);
+      process.exitCode = 1;
+    }
   });
 
 program
@@ -224,9 +254,10 @@ program
   .action(async (name, o) => {
     const loaded = cfg();
     const runDir = runDirFor(loaded, name);
-    const output = JSON.parse(fs.readFileSync(path.join(runDir, "output.json"), "utf8")) as RunOutput;
+    const output = loadRunOutput(runDir);
+    await refreshScreenChange(output.run, runDir);
     output.candidates = diffRun(output.run);
-    output.verdicts = o.from ? JSON.parse(fs.readFileSync(o.from, "utf8")) : await judgeRun(loaded, output, log, { rulesOnly: !!o.rules });
+    output.verdicts = o.from ? importVerdicts(JSON.parse(fs.readFileSync(o.from, "utf8")), output) : await judgeRun(loaded, output, log, { rulesOnly: !!o.rules });
     fs.writeFileSync(path.join(runDir, "verdicts.json"), JSON.stringify(output.verdicts, null, 2));
     fs.writeFileSync(path.join(runDir, "output.json"), JSON.stringify(output, null, 2));
     for (const v of output.verdicts!) log(`${v.severity.toUpperCase().padEnd(6)} ${v.category.padEnd(15)} ${v.title}`);
@@ -238,9 +269,12 @@ program
   .action(async (name) => {
     const loaded = cfg();
     const runDir = runDirFor(loaded, name);
-    const output = JSON.parse(fs.readFileSync(path.join(runDir, "output.json"), "utf8")) as RunOutput;
+    const output = loadRunOutput(runDir);
     if (!output.verdicts) throw new Error("Run has no verdicts yet: run `natively judge` first");
     await renderRun(loaded, output, log);
+    fs.writeFileSync(path.join(runDir, "verdicts.json"), JSON.stringify(output.verdicts, null, 2));
+    fs.writeFileSync(path.join(runDir, "output.json"), JSON.stringify(output, null, 2));
+    writeReport(loaded, log);
   });
 
 program

@@ -23,7 +23,7 @@ natively argent <tool>   call any Argent tool on one side (-s ios|android)
 
 ## Requirements
 
-- Node 20+, `ffmpeg`/`ffprobe` with libx264 (macOS: `brew install ffmpeg`, and put `/opt/homebrew/bin`
+- macOS or Linux (Windows is untested). Node 20+, `ffmpeg`/`ffprobe` with libx264 (macOS: `brew install ffmpeg`, and put `/opt/homebrew/bin`
   first on PATH before Argent's tool-server starts), Xcode (simctl), Android SDK (adb, emulator).
 - Argent 0.25+ on PATH (`npm i -g @swmansion/argent`) or `NATIVELY_ARGENT_BIN=/path/to/cli.js`.
 - Claude Code CLI for the LLM judge (optional; without it every candidate is reported with a
@@ -69,7 +69,9 @@ natively argent <tool>   call any Argent tool on one side (-s ios|android)
 
 ## Flow files
 
-Argent-compatible YAML (a flow also runs with `argent flow run`), plus `title` and `description`.
+Argent's flow step syntax (a subset: no relational selectors, no snapshots) plus two natively-only
+top-level keys, `title` and `description`. Argent's own runner rejects unknown top-level keys, so
+strip those two to replay a flow with `argent flow run`.
 See `skills/natively/SKILL.md` for the directive list and authoring rules; `flows/` in this repo holds
 the flows for the bundled Dog Tinder fixture apps.
 
@@ -91,4 +93,6 @@ natively doctor && natively setup && natively compare
 npm install && npm run build && npm test
 ```
 
-`docs/argent-notes.md` records the Argent behaviours natively works around.
+`docs/argent-notes.md` records the Argent behaviours natively works around. Header and callout text
+uses the system font stack (Helvetica/Arial/Roboto); on a machine without those, install one or set
+`brand` colours only — a bundled font is on the to-do list.

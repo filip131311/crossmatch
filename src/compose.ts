@@ -21,7 +21,7 @@ const HEADER_H = 196;
 const LABEL_H = 56;
 const FOOTER_H = 84;
 const LEAD_MS = 700;
-const TAIL_MS = 1800;
+const TAIL_MS = 2600;
 
 interface Layout { W: number; H: number; panels: Record<Side, { x: number; y: number; w: number; h: number }> }
 
@@ -209,7 +209,7 @@ function drawCaption(L: Layout, brand: Brand, text: string): Buffer {
 
 interface ResolvedPointer { side: Side; frame: Frame; label: string; fromMs: number; ghost: boolean }
 
-function resolvePointers(output: RunOutput, v: Verdict): ResolvedPointer[] {
+function resolvePointers(output: RunOutput, v: Verdict, log: (s: string) => void): ResolvedPointer[] {
   const out: ResolvedPointer[] = [];
   for (const p of v.pointers) {
     if (p.side === "both") continue;
@@ -220,8 +220,22 @@ function resolvePointers(output: RunOutput, v: Verdict): ResolvedPointer[] {
     if (p.element && tree) {
       const node = resolveSelector(tree, p.element);
       if (node) frame = node.frame;
+      else if (!frame) {
+        // the element may be in a neighbouring step's tree (the judge names the step loosely)
+        for (const d of [-1, 1, -2, 2]) {
+          const alt = output.run.steps[p.stepIndex + d]?.[p.side].tree;
+          const n2 = alt && resolveSelector(alt, p.element);
+          if (n2) {
+            frame = n2.frame;
+            break;
+          }
+        }
+      }
     }
-    if (!frame) continue;
+    if (!frame) {
+      log(`  pointer "${p.label}" (${p.side}, step ${p.stepIndex + 1}) not drawn: ${JSON.stringify(p.element)} is not in that step's tree`);
+      continue;
+    }
     out.push({ side: p.side, frame, label: p.label, fromMs: step[p.side].startMs, ghost: false });
   }
   // A missing control gets a ghost marker at the same place on the other side.
@@ -242,10 +256,14 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   const brand = loaded.config.brand;
   const tmp = path.join(runDir, ".compose");
   fs.mkdirSync(tmp, { recursive: true });
+  if (!output.run.video.ios.file || !output.run.video.android.file) {
+    log("  no side-by-side videos: a recording is missing on one side");
+    return files;
+  }
   verdicts.forEach((v, i) => {
     const file = `diff-${i + 1}.mp4`;
     try {
-      composeOne(output, v, i, L, brand, runDir, tmp, file);
+      composeOne(output, v, i, L, brand, runDir, tmp, file, log);
       files.push(file);
       v.video = file;
       log(`  rendered ${file}: ${v.title}`);
@@ -257,11 +275,14 @@ export async function renderRun(loaded: LoadedConfig, output: RunOutput, log: (s
   return files;
 }
 
-function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string) {
+function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, brand: Brand, runDir: string, tmp: string, file: string, log: (s: string) => void) {
   const steps = output.run.steps;
   const [a, b] = v.stepRange;
-  const clipStart = (side: Side) => Math.max(0, steps[a][side].startMs - LEAD_MS);
-  const clipEnd = (side: Side) => Math.min(output.run.video[side].durationMs, steps[b][side].endMs + TAIL_MS);
+  const duration = (side: Side) => output.run.video[side].durationMs || Number.POSITIVE_INFINITY;
+  // clamp to the recording: a flow can outlive the recording's time limit
+  const clipStart = (side: Side) => Math.max(0, Math.min(steps[a][side].startMs - LEAD_MS, duration(side) - 1500));
+  const clipEnd = (side: Side) => Math.min(duration(side), Math.max(steps[b][side].endMs, steps[a][side].startMs) + TAIL_MS);
+  for (const side of ["ios", "android"] as Side[]) if (steps[b][side].endMs > duration(side)) log(`  warning: step ${b + 1} on ${side} lies beyond the end of the recording (raise recording.timeLimitSeconds)`);
   const lenMs = Math.max(clipEnd("ios") - clipStart("ios"), clipEnd("android") - clipStart("android"), 1500);
   const len = lenMs / 1000;
   const frame = path.join(tmp, `frame-${index}.png`);
@@ -278,12 +299,12 @@ function composeOne(output: RunOutput, v: Verdict, index: number, L: Layout, bra
     fs.writeFileSync(cap, drawCaption(L, brand, `Step ${s + 1} · ${st.label}`));
     overlays.push({ file: cap, from, to });
   }
-  const pointers = resolvePointers(output, v);
+  const pointers = resolvePointers(output, v, log);
   pointers.forEach((p, k) => {
     const png = path.join(tmp, `ptr-${index}-${k}.png`);
     fs.writeFileSync(png, drawPointer(L, brand, p.side, p.frame, p.label, p.ghost));
     // appear a beat after the step's action landed; stay until the end of the clip
-    const from = Math.max(0, p.fromMs - clipStart(p.side) + 500) / 1000;
+    const from = Math.max(0, p.fromMs - clipStart(p.side) + 300) / 1000;
     overlays.push({ file: png, from: Math.min(from, len - 0.5), to: len });
   });
   for (const o of overlays) inputs.push("-loop", "1", "-framerate", "30", "-t", len.toFixed(3), "-i", o.file);

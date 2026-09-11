@@ -84,9 +84,24 @@ export class SideSession {
     this.recording = true;
   }
 
+  private stopWallClock = 0;
+
+  /**
+   * Milliseconds to add to this side's step times so they sit on the video timeline: the video
+   * runs from (stop time - duration) whereas step times were measured from when the start call returned.
+   */
+  timelineOffset(durationMs: number): number {
+    if (!this.recordingStart || !this.stopWallClock || !durationMs) return 0;
+    const videoStart = this.stopWallClock - durationMs;
+    const delta = this.recordingStart - videoStart;
+    // ignore implausible values (a trimmed or truncated video)
+    return Math.abs(delta) < 5000 ? Math.round(delta) : 0;
+  }
+
   async stopRecording(): Promise<{ file: string; durationMs: number } | undefined> {
     if (!this.recording) return undefined;
     this.recording = false;
+    this.stopWallClock = Date.now();
     const res = await this.call<{ video: string | ArgentArtifact; durationMs: number }>("screen-recording-stop", {});
     const dest = path.join(this.opts.runDir, `${this.side}.mp4`);
     if (typeof res.video === "string") fs.copyFileSync(res.video, dest);
@@ -134,6 +149,9 @@ export class SideSession {
 
   private async tapNode(node: UiNode, times?: number): Promise<void> {
     const c = centre(node.frame);
+    // A toggle exposed as a whole row (iOS Toggle in a List) only reacts on the control itself,
+    // which sits at the trailing edge; tapping the label does nothing.
+    if ((node.role === "switch" || node.role === "checkbox") && node.frame.width > 0.6) c.x = node.frame.x + node.frame.width - Math.min(0.08, node.frame.width / 4);
     await this.call("gesture-tap", { x: c.x, y: c.y, ...(times && times > 1 ? { clickCount: times } : {}) });
   }
 
@@ -187,7 +205,8 @@ export class SideSession {
           break;
         case "text": {
           const first = visible[0] ?? matches[0];
-          if (first && first.text.toLowerCase().includes(c.expected.toLowerCase())) return { ok: true, node: first };
+          const holds = first && (c.match === "equals" ? first.text.toLowerCase() === c.expected.toLowerCase() : c.match === "matches" ? new RegExp(c.expected).test(first.text) : first.text.toLowerCase().includes(c.expected.toLowerCase()));
+          if (holds) return { ok: true, node: first };
           last = first ? `${describeSelector(c.selector)} reads "${first.text}", expected "${c.expected}"` : `no element matches ${describeSelector(c.selector)}`;
           break;
         }
@@ -215,7 +234,8 @@ export class SideSession {
   private async run(d: Directive): Promise<UiNode | undefined> {
     switch (d.kind) {
       case "launch": {
-        await this.call("restart-app", { bundleId: d.bundleId ?? this.opts.bundleId });
+        const id = d.bundleId ?? d.perPlatform?.[this.side] ?? this.opts.bundleId;
+        await this.call("restart-app", { bundleId: id });
         await this.settle(6000);
         return undefined;
       }
@@ -300,7 +320,8 @@ export class SideSession {
         return last;
       }
       case "tool": {
-        await this.call(d.tool, d.args);
+        const needsBundle = /app$|^launch-app$|^describe$|^await-ui-element$|^settings-permissions$/.test(d.tool);
+        await this.call(d.tool, { ...(needsBundle ? { bundleId: this.opts.bundleId } : {}), ...d.args });
         return undefined;
       }
     }

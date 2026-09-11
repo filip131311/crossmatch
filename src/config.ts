@@ -47,6 +47,9 @@ export function loadConfig(explicit?: string): LoadedConfig {
     recording: { ...DEFAULT_CONFIG.recording, ...raw.recording },
     judgeRules: raw.judgeRules ?? [],
   };
+  for (const k of ["accent", "ink", "paper"] as const) {
+    if (!/^#[0-9a-f]{6}$/i.test(config.brand[k])) throw new Error(`${file}: brand.${k} must be a 6-digit hex colour like #6C4CF1 (got "${config.brand[k]}")`);
+  }
   return { config, root: path.dirname(file), file };
 }
 

@@ -7,10 +7,10 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import type { LoadedConfig } from "./config.js";
 import { runDirFor } from "./lockstep.js";
-import { CATEGORIES, SEVERITIES, TAXONOMY } from "./taxonomy.js";
-import { VOICE, tidyDescription, tidyTitle } from "./voice.js";
+import { CATEGORIES, SEVERITIES, taxonomyFor } from "./taxonomy.js";
+import { voiceFor, tidyDescription, tidyTitle } from "./voice.js";
 import { meaningfulNodes } from "./describe.js";
-import type { Candidate, Category, Pointer, RunOutput, Severity, UiTree, Verdict } from "./types.js";
+import { SIDE_NAME, runPair, type Candidate, type Category, type Pointer, type RunOutput, type Severity, type StepSideResult, type UiTree, type Verdict } from "./types.js";
 
 export interface JudgeOptions { rulesOnly?: boolean; model?: string }
 
@@ -88,8 +88,11 @@ export async function judgeRun(loaded: LoadedConfig, output: RunOutput, log: (s:
 function buildBrief(loaded: LoadedConfig, output: RunOutput): string {
   const { run, candidates } = output;
   const runDir = runDirFor(loaded, run.flow.name);
+  const pair = runPair(run);
+  const [na, nb] = pair.map((s) => SIDE_NAME[s]);
+  const status = (side: string, r: StepSideResult | undefined) => `${side}: ${r?.status ?? "skip"}${r?.reason ? ` – ${r.reason}` : ""}${r?.captureError ? " – NOT COMPARED (capture failed)" : ""}`;
   const steps = run.steps
-    .map((s) => `${String(s.index + 1).padStart(2)}. ${s.label}  [ios: ${s.ios.status}${s.ios.reason ? ` – ${s.ios.reason}` : ""}${s.ios.captureError ? " – NOT COMPARED (capture failed)" : ""}; android: ${s.android.status}${s.android.reason ? ` – ${s.android.reason}` : ""}${s.android.captureError ? " – NOT COMPARED (capture failed)" : ""}]`)
+    .map((s) => `${String(s.index + 1).padStart(2)}. ${s.label}  [${pair.map((side) => status(side, s[side])).join("; ")}]`)
     .join("\n");
   const shotSteps = new Set<number>();
   const cands = candidates
@@ -109,12 +112,13 @@ function buildBrief(loaded: LoadedConfig, output: RunOutput): string {
     .sort((a, b) => a - b)
     .map((i) => {
       const st = run.steps[i];
-      return `step ${i + 1} (${st.label})\n  ios screenshot: ${st.ios.screenshot ? path.join(runDir, st.ios.screenshot) : "(none)"}\n  ios tree: ${excerpt(st.ios.tree)}\n  android screenshot: ${st.android.screenshot ? path.join(runDir, st.android.screenshot) : "(none)"}\n  android tree: ${excerpt(st.android.tree)}`;
+      const shot = (r: StepSideResult | undefined) => (r?.screenshot ? path.join(runDir, r.screenshot) : "(none)");
+      return `step ${i + 1} (${st.label})${pair.map((side) => `\n  ${side} screenshot: ${shot(st[side])}\n  ${side} tree: ${excerpt(st[side]?.tree)}`).join("")}`;
     })
     .join("\n");
   const extra = loaded.config.judgeRules.length ? `\n## Project-specific rules\n${loaded.config.judgeRules.map((r) => `- ${r}`).join("\n")}\n` : "";
-  return `You are the judge in "crossmatch", a tool that compares an iOS app with its Android twin. A flow was
-replayed on both devices in lockstep; after every step both accessibility trees were compared. The
+  return `You are the judge in "crossmatch", a tool that compares the ${na} version of an app with its ${nb} twin. A flow was
+replayed on both in lockstep; after every step both accessibility trees were compared. The
 mechanical comparison produced the candidate differences below. Decide which are real, user-relevant
 differences between the two apps and which are platform idioms or noise. Look at the screenshots
 (use the Read tool on the paths) whenever the text alone is ambiguous — the screenshots are the
@@ -132,9 +136,9 @@ ${cands}
 ## Evidence per step (trees are abbreviated; read the screenshots when in doubt)
 ${evidence}
 
-${TAXONOMY}
+${taxonomyFor(pair)}
 
-${VOICE}
+${voiceFor(pair)}
 ${extra}
 ## Output
 
@@ -147,11 +151,11 @@ Schema:
     "candidateIds": ["c1", "c4"],
     "category": ${JSON.stringify(CATEGORIES)}[i],
     "severity": ${JSON.stringify(SEVERITIES)}[i],
-    "title": "one plain sentence, <= 70 characters, e.g. \"Android has a Super Like button, iOS does not\"",
+    "title": "one plain sentence, <= 70 characters, e.g. \"${nb} has a Super Like button, ${na} does not\"",
     "description": "at most two short sentences (~30 words): what each side does, and why it matters",
     "stepRange": [firstStep1Based, lastStep1Based],   // the steps the side-by-side video should cover; include the step before the difference appears
     "pointers": [                                       // where to point in the video; one per side when both sides show something
-      { "side": "ios" | "android", "step": step1Based, "element": { "id": "like-button" } | { "text": "It's a match!" }, "label": "<= 4 words shown next to the pointer, e.g. \"Match dialog\"" }
+      { "side": ${pair.map((s) => `"${s}"`).join(" | ")}, "step": step1Based, "element": { "id": "like-button" } | { "text": "It's a match!" }, "label": "<= 4 words shown next to the pointer, e.g. \"Match dialog\"" }
     ]
   }
 ]
@@ -218,7 +222,8 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
     const cands = candidateIds.map((id: string) => byId.get(id)!);
     const allSteps = cands.flatMap((c) => c.steps);
     let range: [number, number] = [Math.max(0, Math.min(...allSteps) - 1), Math.max(...allSteps)];
-    const lastRan = Math.max(0, ...output.run.steps.filter((st) => st.ios.endMs > 0 || st.android.endMs > 0).map((st) => st.index));
+    const pair = runPair(output.run);
+    const lastRan = Math.max(0, ...output.run.steps.filter((st) => pair.some((side) => (st[side]?.endMs ?? 0) > 0)).map((st) => st.index));
     if (Array.isArray(v.stepRange) && v.stepRange.length === 2 && Number.isFinite(+v.stepRange[0]) && Number.isFinite(+v.stepRange[1])) {
       const a = Math.min(lastRan, Math.max(0, Math.round(+v.stepRange[0]) - 1));
       const b = Math.min(lastRan, Math.max(a, Math.round(+v.stepRange[1]) - 1));
@@ -228,7 +233,7 @@ function sanitise(items: unknown[], output: RunOutput): Verdict[] {
     if (Array.isArray(v.pointers)) {
       for (const p of v.pointers) {
         if (!p || typeof p !== "object") continue;
-        const side = p.side === "ios" || p.side === "android" ? p.side : undefined;
+        const side = pair.includes(p.side) ? (p.side as Pointer["side"]) : undefined;
         const step = Number.isFinite(+p.step) ? Math.min(n - 1, Math.max(0, Math.round(+p.step) - 1)) : undefined;
         if (!side || step === undefined) continue;
         const element = p.element && typeof p.element === "object" ? (typeof p.element.id === "string" ? { id: p.element.id } : typeof p.element.text === "string" ? { text: p.element.text } : undefined) : undefined;

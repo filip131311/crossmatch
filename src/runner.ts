@@ -7,16 +7,20 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { ArgentClient, ArgentArtifact } from "./argent.js";
+import { ScreencastRecorder, clearSiteData, historyBack } from "./cdp.js";
 import { centre, parseDescribe, resolveSelector, selectorMatches, describeSelector } from "./describe.js";
 import type { Device } from "./devices.js";
-import type { Condition, Directive, FlowStep, Selector, Side, StepSideResult, UiNode, UiTree } from "./types.js";
+import type { Condition, Directive, FlowStep, Selector, Side, StepSideResult, UiNode, UiTree, WebConfig } from "./types.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class StepFailure extends Error {}
 
 export interface SideSessionOptions {
+  /** The app's bundle id / applicationId; unused on web. */
   bundleId: string;
+  /** Required on the web side: the page to open and the browser crossmatch records. */
+  web?: WebConfig;
   runDir: string;
   showTouches: boolean;
   timeLimitSeconds: number;
@@ -28,6 +32,7 @@ export class SideSession {
   private recordingStart = 0;
   private recording = false;
   private failed = false;
+  private screencast?: ScreencastRecorder;
   constructor(readonly client: ArgentClient, readonly device: Device, readonly opts: SideSessionOptions) {
     this.side = device.platform;
   }
@@ -68,13 +73,28 @@ export class SideSession {
   }
 
   async screenshot(file: string, scale = 0.5): Promise<string> {
-    const res = await this.call<{ image: ArgentArtifact }>("screenshot", { scale, includeImageInContext: false });
+    // Argent only downscales Chromium screenshots with the optional `sharp` package installed
+    const res = await this.call<{ image: ArgentArtifact }>("screenshot", { ...(this.side === "web" ? {} : { scale }), includeImageInContext: false });
     const dest = path.join(this.opts.runDir, file);
     await this.client.saveArtifact(res.image, dest);
     return file;
   }
 
+  private get web(): WebConfig {
+    if (!this.opts.web) throw new Error("the web side needs the web config");
+    return this.opts.web;
+  }
+
   async startRecording(): Promise<void> {
+    if (this.side === "web") {
+      // Argent cannot record Chromium: crossmatch records the page itself
+      const screencast = new ScreencastRecorder(this.web, path.join(this.opts.runDir, ".web-frames"));
+      await screencast.start(); // closes its own connection when it fails
+      this.screencast = screencast;
+      this.recordingStart = Date.now();
+      this.recording = true;
+      return;
+    }
     await this.call("screen-recording-start", {
       trimStatic: false,
       showTouches: this.opts.showTouches,
@@ -108,6 +128,12 @@ export class SideSession {
     if (!this.recording) return undefined;
     this.recording = false;
     this.stopWallClock = Date.now();
+    const screencast = this.screencast;
+    this.screencast = undefined;
+    if (screencast) {
+      const durationMs = await screencast.stop(path.join(this.opts.runDir, `${this.side}.mp4`));
+      return { file: `${this.side}.mp4`, durationMs };
+    }
     const res = await this.call<{ video: string | ArgentArtifact; durationMs: number }>("screen-recording-stop", {});
     const dest = path.join(this.opts.runDir, `${this.side}.mp4`);
     if (typeof res.video === "string") fs.copyFileSync(res.video, dest);
@@ -128,7 +154,9 @@ export class SideSession {
     }
   }
 
+  /** Start from an empty state: reinstall the app, or on web wipe the site's cookies and storage. */
   async reinstall(appPath: string): Promise<void> {
+    if (this.side === "web") return clearSiteData(this.web);
     await this.call("reinstall-app", { bundleId: this.opts.bundleId, appPath });
   }
 
@@ -166,7 +194,12 @@ export class SideSession {
     const d = opts.distance ?? 0.35;
     const delta = { up: [0, -d], down: [0, d], left: [-d, 0], right: [d, 0] }[direction];
     const clamp = (v: number) => Math.min(0.95, Math.max(0.05, v));
-    await this.call("gesture-swipe", {
+    if (this.side === "web" && !from) {
+      // a page scrolls with the wheel, not a drag; the finger's travel is the opposite of the scroll
+      await this.call("gesture-scroll", { x: start.x, y: start.y, deltaX: -delta[0], deltaY: -delta[1], durationMs: opts.durationMs ?? 300 });
+      return;
+    }
+    await this.call(this.side === "web" ? "gesture-drag" : "gesture-swipe", {
       fromX: start.x,
       fromY: start.y,
       toX: clamp(start.x + delta[0]),
@@ -240,6 +273,15 @@ export class SideSession {
   private async run(d: Directive): Promise<UiNode | undefined> {
     switch (d.kind) {
       case "launch": {
+        if (this.side === "web") {
+          // a full navigation drops the page's in-memory state, like restarting an app
+          const url = d.perPlatform?.web ?? (d.bundleId && /^(https?|file):/.test(d.bundleId) ? d.bundleId : this.web.url);
+          // through about:blank, so a URL that differs only after "#" still reloads the page
+          await this.call("open-url", { url: "about:blank" });
+          await this.call("open-url", { url });
+          await this.settle(6000);
+          return undefined;
+        }
         const id = d.bundleId ?? d.perPlatform?.[this.side] ?? this.opts.bundleId;
         await this.call("restart-app", { bundleId: id });
         await this.settle(6000);
@@ -259,6 +301,10 @@ export class SideSession {
         const { node } = await this.waitFor(d.selector, 4000);
         if (!node) throw new StepFailure(`long-press: no element matches ${describeSelector(d.selector)}`);
         const c = centre(node.frame);
+        if (this.side === "web") {
+          await this.call("gesture-drag", { fromX: c.x, fromY: c.y, toX: c.x, toY: c.y, durationMs: d.duration ?? 800 });
+          return node;
+        }
         await this.call("gesture-custom", {
           events: [
             { type: "Down", x: c.x, y: c.y },
@@ -317,6 +363,11 @@ export class SideSession {
       case "echo":
         return undefined;
       case "button":
+        if (this.side === "web") {
+          if (d.button !== "back") throw new StepFailure(`button: ${d.button} has no web equivalent (only back, which goes back in the browser history)`);
+          await historyBack(this.web);
+          return undefined;
+        }
         await this.call("button", { button: d.button });
         return undefined;
       case "when": {
@@ -326,7 +377,7 @@ export class SideSession {
         return last;
       }
       case "tool": {
-        const needsBundle = /app$|^launch-app$|^describe$|^await-ui-element$|^settings-permissions$/.test(d.tool);
+        const needsBundle = this.side !== "web" && /app$|^launch-app$|^describe$|^await-ui-element$|^settings-permissions$/.test(d.tool);
         await this.call(d.tool, { ...(needsBundle ? { bundleId: this.opts.bundleId } : {}), ...d.args });
         return undefined;
       }

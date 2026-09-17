@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import type { Condition, Directive, Flow, FlowStep, Selector, Side } from "./types.js";
+import { SIDES, type Condition, type Directive, type Flow, type FlowStep, type Selector, type Side } from "./types.js";
 
 const SELECTOR_KEYS = new Set(["id", "identifier", "text", "role"]);
 const UNSUPPORTED_SELECTOR_KEYS = new Set(["within", "after", "next", "any"]);
@@ -68,6 +68,7 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
         const perPlatform: Partial<Record<Side, string>> = {};
         if (typeof m.ios === "string") perPlatform.ios = m.ios;
         if (typeof m.android === "string") perPlatform.android = m.android;
+        if (typeof m.web === "string") perPlatform.web = m.web;
         if (typeof m.native === "string") perPlatform.ios = perPlatform.android = m.native;
         return { kind: "launch", perPlatform };
       }
@@ -126,7 +127,7 @@ export function parseDirective(raw: unknown, ctx: string): Directive {
     case "when": {
       const w = v as any;
       const platform = (w.platform ?? w) as Side;
-      if (platform !== "ios" && platform !== "android") throw new Error(`${ctx}: when: needs platform ios|android`);
+      if (!SIDES.includes(platform)) throw new Error(`${ctx}: when: needs platform ${SIDES.join("|")}`);
       const steps = parseSteps(o.steps ?? w.steps, ctx);
       return { kind: "when", platform, steps };
     }

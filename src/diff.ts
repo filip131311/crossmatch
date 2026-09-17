@@ -7,7 +7,7 @@
  * keyboard is actually detected on screen, so an app's own "Delete" or "+" button is never dropped.
  */
 import { meaningfulNodes } from "./describe.js";
-import type { Candidate, Pointer, RunRecord, Side, StepResult, UiNode, UiTree } from "./types.js";
+import { SIDE_NAME, otherSide, runPair, sideOf, type Candidate, type Pair, type Pointer, type RunRecord, type Side, type StepResult, type UiNode, type UiTree } from "./types.js";
 
 const INTERACTIVE = new Set(["button", "textfield", "switch", "checkbox", "slider", "tab", "link"]);
 /** Back navigation is idiomatic per platform and never a difference. */
@@ -39,7 +39,7 @@ function isImeToolbar(t: string): boolean {
 /** Per-tree view with the platform chrome and keyboard removed. */
 class Screen {
   readonly nodes: UiNode[];
-  constructor(readonly tree: UiTree) {
+  constructor(readonly tree: UiTree, readonly side: Side) {
     const all = meaningfulNodes(tree);
     // keyboard detection: a cluster of single-character keys in the lower half of the screen
     const keys = all.filter((n) => n.text.length === 1 && n.frame.y > 0.45);
@@ -56,7 +56,7 @@ class Screen {
   readonly keyboard: boolean;
 
   private isChrome(n: UiNode, keyboardTop: number | undefined, bars: UiNode[]): boolean {
-    if (n.frame.y + n.frame.height <= 0.06 && !n.id) return true; // status bar
+    if (this.side !== "web" && n.frame.y + n.frame.height <= 0.06 && !n.id) return true; // status bar (a web page has none)
     if (n.id && (SYMBOL_ID.test(n.id) || IDIOM_IDS.has(n.id.toLowerCase()))) return true;
     const t = norm(n.text);
     if (IDIOM_TEXT.has(t) || ARTEFACT_TEXT.test(t) || PREDICTION_BAR.test(t)) return true;
@@ -136,49 +136,57 @@ function pointerFor(side: Side, step: number, n: UiNode, label: string): Pointer
   return { side, stepIndex: step, element: n.id ? { id: n.id } : { text: n.text }, frame: n.frame, label };
 }
 
-const SIDE_NAME: Record<Side, string> = { ios: "iOS", android: "Android" };
-
 /** Ids that both apps use somewhere in the run: a difference in their presence or count is meaningful even for passive elements. */
-function sharedIds(run: RunRecord): Set<string> {
-  const seen: Record<Side, Set<string>> = { ios: new Set(), android: new Set() };
-  for (const st of run.steps) for (const side of ["ios", "android"] as Side[]) for (const n of st[side].tree?.nodes ?? []) if (n.id && !SYMBOL_ID.test(n.id)) seen[side].add(n.id);
-  return new Set([...seen.ios].filter((id) => seen.android.has(id)));
+function sharedIds(run: RunRecord, pair: Pair): Set<string> {
+  const [sa, sb] = pair;
+  const seen = { [sa]: new Set<string>(), [sb]: new Set<string>() } as Record<Side, Set<string>>;
+  for (const st of run.steps) for (const side of pair) for (const n of st[side]?.tree?.nodes ?? []) if (n.id && !SYMBOL_ID.test(n.id)) seen[side].add(n.id);
+  return new Set([...seen[sa]].filter((id) => seen[sb].has(id)));
 }
 
-function compareStep(step: StepResult, shared: Set<string>): Raw[] {
+function compareStep(step: StepResult, shared: Set<string>, pair: Pair): Raw[] {
   const out: Raw[] = [];
   const i = step.index;
-  const failedSide = (["ios", "android"] as Side[]).find((s) => step[s].status === "fail" || step[s].status === "error");
+  const [sa, sb] = pair;
+  const ra = sideOf(step, sa);
+  const rb = sideOf(step, sb);
+  const [na, nb] = [SIDE_NAME[sa], SIDE_NAME[sb]];
+  const failedSide = pair.find((s) => sideOf(step, s).status === "fail" || sideOf(step, s).status === "error");
   if (failedSide) {
-    const other: Side = failedSide === "ios" ? "android" : "ios";
-    if (step[other].status === "pass") {
+    const other = otherSide(pair, failedSide);
+    const ro = sideOf(step, other);
+    const rf = sideOf(step, failedSide);
+    if (ro.status === "pass") {
       const pointers: Pointer[] = [];
-      if (step[other].target) pointers.push(pointerFor(other, i, step[other].target!, `Works on ${SIDE_NAME[other]}`));
-      out.push({ kind: "outcome", signature: `outcome:${step.label}:${failedSide}`, summary: `Step ${i + 1} (${step.label}) passes on ${SIDE_NAME[other]} but fails on ${SIDE_NAME[failedSide]}`, detail: `${SIDE_NAME[failedSide]}: ${step[failedSide].reason ?? step[failedSide].status}. Later steps were skipped on ${SIDE_NAME[failedSide]}.`, pointers, step: i });
+      if (ro.target) pointers.push(pointerFor(other, i, ro.target, `Works on ${SIDE_NAME[other]}`));
+      out.push({ kind: "outcome", signature: `outcome:${step.label}:${failedSide}`, summary: `Step ${i + 1} (${step.label}) passes on ${SIDE_NAME[other]} but fails on ${SIDE_NAME[failedSide]}`, detail: `${SIDE_NAME[failedSide]}: ${rf.reason ?? rf.status}. Later steps were skipped on ${SIDE_NAME[failedSide]}.`, pointers, step: i });
     }
   }
-  if (step.ios.status !== "pass" || step.android.status !== "pass") return out;
+  if (ra.status !== "pass" || rb.status !== "pass") return out;
 
   // one screen reacted to the action and the other did not (pixels, independent of the trees)
-  const pa = step.ios.screenChange;
-  const pb = step.android.screenChange;
+  const pa = ra.screenChange;
+  const pb = rb.screenChange;
   const acted = !["await", "assert", "wait", "echo", "launch", "when", "tool"].includes(step.directive.kind);
   if (acted && pa !== undefined && pb !== undefined) {
     // calibrated on real captures: an empty chat bubble is ~0.24% of the screen, a blinking caret ~0.02%
     const moved = (x: number) => x >= 0.0015;
     const still = (x: number) => x <= 0.0004;
     if ((moved(pa) && still(pb)) || (moved(pb) && still(pa))) {
-      const reacted: Side = moved(pa) ? "ios" : "android";
-      const idle: Side = reacted === "ios" ? "android" : "ios";
+      const reacted: Side = moved(pa) ? sa : sb;
+      const idle = otherSide(pair, reacted);
       const pointers: Pointer[] = [];
-      for (const side of ["ios", "android"] as Side[]) if (step[side].target) pointers.push(pointerFor(side, i, step[side].target!, side === reacted ? `Screen changed on ${SIDE_NAME[side]}` : `No change on ${SIDE_NAME[side]}`));
-      out.push({ kind: "outcome", signature: `reaction:${step.label}:${reacted}`, summary: `After "${step.label}" the screen changed on ${SIDE_NAME[reacted]} (${((reacted === "ios" ? pa : pb) * 100).toFixed(1)}% of pixels) but not on ${SIDE_NAME[idle]}`, detail: `Pixel change between the screenshots before and after the step: iOS ${(pa * 100).toFixed(2)}%, Android ${(pb * 100).toFixed(2)}%. The trees may not expose what changed (an empty element, a state without text).`, pointers, step: i });
+      for (const side of pair) {
+        const target = sideOf(step, side).target;
+        if (target) pointers.push(pointerFor(side, i, target, side === reacted ? `Screen changed on ${SIDE_NAME[side]}` : `No change on ${SIDE_NAME[side]}`));
+      }
+      out.push({ kind: "outcome", signature: `reaction:${step.label}:${reacted}`, summary: `After "${step.label}" the screen changed on ${SIDE_NAME[reacted]} (${((reacted === sa ? pa : pb) * 100).toFixed(1)}% of pixels) but not on ${SIDE_NAME[idle]}`, detail: `Pixel change between the screenshots before and after the step: ${na} ${(pa * 100).toFixed(2)}%, ${nb} ${(pb * 100).toFixed(2)}%. The trees may not expose what changed (an empty element, a state without text).`, pointers, step: i });
     }
   }
 
-  if (!step.ios.tree || !step.android.tree) return out;
-  const A = new Screen(step.ios.tree);
-  const B = new Screen(step.android.tree);
+  if (!ra.tree || !rb.tree) return out;
+  const A = new Screen(ra.tree, sa);
+  const B = new Screen(rb.tree, sb);
   const ia = A.byId();
   const ib = B.byId();
   const xa = A.atoms();
@@ -194,23 +202,23 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
       const ta = norm(ea.node.text);
       const tb = norm(eb.node.text);
       if (ta && tb && ta !== tb && !sameContent(ea.node.text, eb.node.text)) {
-        out.push({ kind: "text", signature: `text:#${id}`, summary: `#${id} reads "${ea.node.text}" on iOS but "${eb.node.text}" on Android`, detail: `Same element id, different visible text.`, pointers: [pointerFor("ios", i, ea.node, `"${ea.node.text}"`), pointerFor("android", i, eb.node, `"${eb.node.text}"`)], step: i });
+        out.push({ kind: "text", signature: `text:#${id}`, summary: `#${id} reads "${ea.node.text}" on ${na} but "${eb.node.text}" on ${nb}`, detail: `Same element id, different visible text.`, pointers: [pointerFor(sa, i, ea.node, `"${ea.node.text}"`), pointerFor(sb, i, eb.node, `"${eb.node.text}"`)], step: i });
       }
       for (const f of STATE_FLAGS) {
         const fa = ea.node.flags.includes(f);
         const fb = eb.node.flags.includes(f);
         if (fa === fb) continue;
-        const where: Side = fa ? "ios" : "android";
-        const other: Side = fa ? "android" : "ios";
-        out.push({ kind: "flags", signature: `flag:#${id}:${f}:${where}`, summary: `#${id} ("${ea.node.text || eb.node.text}") is ${f} on ${SIDE_NAME[where]} but not on ${SIDE_NAME[other]}`, detail: `iOS flags: [${ea.node.flags.join(", ")}]; Android flags: [${eb.node.flags.join(", ")}]`, pointers: [pointerFor("ios", i, ea.node, fa ? `${f} on iOS` : `not ${f} on iOS`), pointerFor("android", i, eb.node, fb ? `${f} on Android` : `not ${f} on Android`)], step: i });
+        const where: Side = fa ? sa : sb;
+        const other = otherSide(pair, where);
+        out.push({ kind: "flags", signature: `flag:#${id}:${f}:${where}`, summary: `#${id} ("${ea.node.text || eb.node.text}") is ${f} on ${SIDE_NAME[where]} but not on ${SIDE_NAME[other]}`, detail: `${na} flags: [${ea.node.flags.join(", ")}]; ${nb} flags: [${eb.node.flags.join(", ")}]`, pointers: [pointerFor(sa, i, ea.node, fa ? `${f} on ${na}` : `not ${f} on ${na}`), pointerFor(sb, i, eb.node, fb ? `${f} on ${nb}` : `not ${f} on ${nb}`)], step: i });
       }
-      if (ea.n !== eb.n) out.push({ kind: "elements", signature: `count:#${id}`, summary: `${ea.n} × #${id} on iOS but ${eb.n} × on Android`, detail: `Different number of #${id} elements after this step (e.g. list rows or message bubbles).`, pointers: [pointerFor("ios", i, ea.node, `${ea.n} on iOS`), pointerFor("android", i, eb.node, `${eb.n} on Android`)], step: i });
+      if (ea.n !== eb.n) out.push({ kind: "elements", signature: `count:#${id}`, summary: `${ea.n} × #${id} on ${na} but ${eb.n} × on ${nb}`, detail: `Different number of #${id} elements after this step (e.g. list rows or message bubbles).`, pointers: [pointerFor(sa, i, ea.node, `${ea.n} on ${na}`), pointerFor(sb, i, eb.node, `${eb.n} on ${nb}`)], step: i });
       continue;
     }
-    const only: Side = ea ? "ios" : "android";
-    const other: Side = ea ? "android" : "ios";
+    const only: Side = ea ? sa : sb;
+    const other = otherSide(pair, only);
     const e = (ea ?? eb)!;
-    const otherAtoms = only === "ios" ? xb : xa;
+    const otherAtoms = only === sa ? xb : xa;
     const textElsewhere = fragments(e.node.text).some((f) => otherAtoms.has(f));
     if (isInteractive(e.node) && textElsewhere && shared.has(id)) {
       // the other side knows this id (other steps) and shows the same label right now: an id that
@@ -233,7 +241,7 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
   // interactive controls matched by label when ids are absent
   const la = A.interactiveByText();
   const lb = B.interactiveByText();
-  for (const [side, mine, theirs, theirAtoms] of [["ios", la, lb, xb], ["android", lb, la, xa]] as Array<[Side, Map<string, UiNode>, Map<string, UiNode>, Map<string, UiNode>]>) {
+  for (const [side, mine, theirs, theirAtoms] of [[sa, la, lb, xb], [sb, lb, la, xa]] as Array<[Side, Map<string, UiNode>, Map<string, UiNode>, Map<string, UiNode>]>) {
     for (const [t, n] of mine) {
       if (theirs.has(t) || comparedText.has(t) || n.id) continue;
       if (theirAtoms.has(t)) continue; // present as text on the other side, just not interactive
@@ -254,16 +262,16 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
   };
   const ga = groups(ia);
   const gb = groups(ib);
-  for (const [prefix, na] of ga) {
-    const nb = gb.get(prefix);
-    if (!nb || na.length < 2 || nb.length < 2) continue;
+  for (const [prefix, rowsA] of ga) {
+    const rowsB = gb.get(prefix);
+    if (!rowsB || rowsA.length < 2 || rowsB.length < 2) continue;
     // reading order with a tolerance: segments of one control sit on one row even if their frames differ by a few px
     const row = (n: UiNode) => Math.round(n.frame.y / 0.03);
     const order = (ns: UiNode[]) => [...ns].sort((p, q) => row(p) - row(q) || p.frame.x - q.frame.x).map((n) => n.id!);
-    const oa = order(na);
-    const ob = order(nb);
+    const oa = order(rowsA);
+    const ob = order(rowsB);
     if (oa.length === ob.length && oa.join() !== ob.join() && [...oa].sort().join() === [...ob].sort().join()) {
-      out.push({ kind: "text", signature: `order:${prefix}`, summary: `${prefix}-* rows are ordered ${oa.map((x) => x.slice(prefix.length + 1)).join(", ")} on iOS but ${ob.map((x) => x.slice(prefix.length + 1)).join(", ")} on Android`, detail: `Same items, different order.`, pointers: [pointerFor("ios", i, na[0], "Order on iOS"), pointerFor("android", i, nb[0], "Order on Android")], step: i });
+      out.push({ kind: "text", signature: `order:${prefix}`, summary: `${prefix}-* rows are ordered ${oa.map((x) => x.slice(prefix.length + 1)).join(", ")} on ${na} but ${ob.map((x) => x.slice(prefix.length + 1)).join(", ")} on ${nb}`, detail: `Same items, different order.`, pointers: [pointerFor(sa, i, rowsA[0], `Order on ${na}`), pointerFor(sb, i, rowsB[0], `Order on ${nb}`)], step: i });
     }
   }
 
@@ -276,12 +284,12 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
     const keyA = keyOf(restA);
     const keyB = keyOf(restB);
     const pointers: Pointer[] = [];
-    if (restA.length) pointers.push(pointerFor("ios", i, restA[0][1], `Only on iOS: "${restA[0][1].text}"`));
-    if (restB.length) pointers.push(pointerFor("android", i, restB[0][1], `Only on Android: "${restB[0][1].text}"`));
+    if (restA.length) pointers.push(pointerFor(sa, i, restA[0][1], `Only on ${na}: "${restA[0][1].text}"`));
+    if (restB.length) pointers.push(pointerFor(sb, i, restB[0][1], `Only on ${nb}: "${restB[0][1].text}"`));
     out.push({
       kind: "text",
       signature: `atoms:${keyA}::${keyB}`,
-      summary: `Different text on screen: ${restA.length ? `iOS only [${restA.map(([t]) => `"${t}"`).join(", ")}]` : ""}${restA.length && restB.length ? "; " : ""}${restB.length ? `Android only [${restB.map(([t]) => `"${t}"`).join(", ")}]` : ""}`,
+      summary: `Different text on screen: ${restA.length ? `${na} only [${restA.map(([t]) => `"${t}"`).join(", ")}]` : ""}${restA.length && restB.length ? "; " : ""}${restB.length ? `${nb} only [${restB.map(([t]) => `"${t}"`).join(", ")}]` : ""}`,
       detail: `Compared every visible text fragment after the step.`,
       pointers,
       step: i,
@@ -292,10 +300,11 @@ function compareStep(step: StepResult, shared: Set<string>): Raw[] {
 
 export function diffRun(run: RunRecord): Candidate[] {
   const merged = new Map<string, Candidate>();
-  const shared = sharedIds(run);
+  const pair = runPair(run);
+  const shared = sharedIds(run, pair);
   let n = 0;
   for (const step of run.steps) {
-    for (const raw of compareStep(step, shared)) {
+    for (const raw of compareStep(step, shared, pair)) {
       const existing = merged.get(raw.signature);
       if (existing) {
         existing.steps.push(raw.step);

@@ -1,13 +1,13 @@
-import type { Category, Severity } from "./types.js";
+import { DEFAULT_PAIR, SIDE_NAME, type Category, type Pair, type Severity } from "./types.js";
 
 export const CATEGORIES: Category[] = ["missing-feature", "behaviour", "validation", "content", "state", "layout", "navigation", "platform-idiom", "noise"];
 export const SEVERITIES: Severity[] = ["high", "medium", "low", "ignore"];
 
 /** The rubric the judge applies. Also rendered into the report so readers know what was filtered. */
-export const TAXONOMY = `
+const TAXONOMY_TEMPLATE = `
 ## What counts as a difference (document it)
 
-- missing-feature — a control, screen, action or piece of functionality exists on one platform only
+- missing-feature — a control, screen, action or piece of functionality exists on one side only
   (a button, a menu entry, a settings row, a whole screen). Severity: high if a user task cannot be
   completed on one side, medium otherwise.
 - behaviour — the same action produces a different outcome (a dialog on one side, none on the other;
@@ -31,7 +31,7 @@ export const TAXONOMY = `
   chevron vs. top-app-bar arrow, iOS Toggle vs. Material Switch, alerts vs. Material dialogs *with the
   same options*, pickers, share sheets, keyboards, fonts, colours, corner radii, shadows, spacing,
   animation and transition style, system status bar, accessibility labels joined with ", " vs " / ",
-  capitalisation conventions of buttons, ripple vs. highlight feedback, scroll indicators.
+  capitalisation conventions of buttons, ripple vs. highlight feedback, scroll indicators.{WEB}
 - noise — accessibility artefacts (scroll bar descriptions, "N pages", SF Symbol names, icon labels
   such as "Flame" / "love" / "gearshape.fill"), the same aggregated label rendered with different
   separators, a tab losing its id while selected, timing differences of a few hundred ms.
@@ -39,3 +39,16 @@ export const TAXONOMY = `
   next tap, so the screens differ afterwards), report ONE difference for the root cause and mention
   the consequence in its description; do not report the downstream candidates separately.
 `.trim();
+
+const WEB_IDIOMS = `
+  On the web side also: browser-native form controls (select dropdowns, date inputs) in place of
+  native pickers, hover and focus styles, links that look like text, the browser's history back in
+  place of a system back button, cookie or consent banners, "open in app" / install prompts, web
+  fonts, and a page that scrolls as a whole where the app scrolls a list.`;
+
+/** The rubric, naming the platforms compared (web adds its own idioms). */
+export function taxonomyFor(pair: Pair): string {
+  return TAXONOMY_TEMPLATE.replace("{WEB}", pair.includes("web") ? WEB_IDIOMS : "").replace("(document it)", `between ${SIDE_NAME[pair[0]]} and ${SIDE_NAME[pair[1]]} (document it)`);
+}
+
+export const TAXONOMY = taxonomyFor(DEFAULT_PAIR);

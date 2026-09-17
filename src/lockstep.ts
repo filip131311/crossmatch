@@ -10,11 +10,11 @@ import type { ArgentClient } from "./argent.js";
 import { ffprobeBin } from "./ffmpeg.js";
 import type { LoadedConfig } from "./config.js";
 import { outDir, resolveFrom } from "./config.js";
-import { pinStatusBar, type Device } from "./devices.js";
+import { deviceOf, pinStatusBar, type Devices } from "./devices.js";
 import { stepLabel } from "./flow.js";
 import { SideSession } from "./runner.js";
 import { screenChange } from "./pixels.js";
-import type { Flow, RunRecord, Side, StepResult, StepSideResult, UiTree } from "./types.js";
+import { SIDE_NAME, sideOf, type Flow, type RunRecord, type Side, type StepResult, type StepSideResult, type UiTree, type VideoInfo } from "./types.js";
 
 export interface LockstepOptions {
   /** Reinstall both apps before the run so both start from an empty state. */
@@ -36,38 +36,37 @@ export function ffprobeSize(file: string): { width: number; height: number; dura
   }
 }
 
-export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig, devices: Record<Side, Device>, flow: Flow, opts: LockstepOptions): Promise<RunRecord> {
+export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig, devices: Devices, flow: Flow, opts: LockstepOptions): Promise<RunRecord> {
   // work in a temp dir; the previous run stays intact until this one has produced run.json
   const finalDir = runDirFor(loaded, flow.name);
   const runDir = `${finalDir}.tmp`;
   fs.rmSync(runDir, { recursive: true, force: true });
   fs.mkdirSync(runDir, { recursive: true });
   const { config } = loaded;
-  const sessions: Record<Side, SideSession> = {
-    ios: new SideSession(client, devices.ios, { bundleId: config.ios.bundleId, runDir, showTouches: config.recording.showTouches, timeLimitSeconds: config.recording.timeLimitSeconds, log: opts.log }),
-    android: new SideSession(client, devices.android, { bundleId: config.android.bundleId, runDir, showTouches: config.recording.showTouches, timeLimitSeconds: config.recording.timeLimitSeconds, log: opts.log }),
-  };
-  const both = <T>(fn: (s: SideSession) => Promise<T>): Promise<[T, T]> => Promise.all([fn(sessions.ios), fn(sessions.android)]);
+  const [sa, sb] = config.platforms;
+  const sessionFor = (side: Side) =>
+    new SideSession(client, deviceOf(devices, side), { bundleId: side === "web" ? "" : config[side].bundleId, web: config.web, runDir, showTouches: config.recording.showTouches, timeLimitSeconds: config.recording.timeLimitSeconds, log: opts.log });
+  const sessions = { [sa]: sessionFor(sa), [sb]: sessionFor(sb) } as Record<Side, SideSession>;
+  const A = sessions[sa];
+  const B = sessions[sb];
+  const both = <T>(fn: (s: SideSession) => Promise<T>): Promise<[T, T]> => Promise.all([fn(A), fn(B)]);
 
   if (opts.fresh) {
-    opts.log("Reinstalling both apps for a clean state…");
-    await Promise.all([
-      sessions.ios.reinstall(resolveFrom(loaded.root, config.ios.app)),
-      sessions.android.reinstall(resolveFrom(loaded.root, config.android.app)),
-    ]);
+    opts.log(sa === "web" || sb === "web" ? "Resetting both sides (reinstalling the app, clearing the site data) for a clean state…" : "Reinstalling both apps for a clean state…");
+    await both((s) => s.reinstall(s.side === "web" ? "" : resolveFrom(loaded.root, config[s.side as "ios" | "android"].app)));
   }
-  pinStatusBar(devices.ios);
-  pinStatusBar(devices.android);
+  pinStatusBar(A.device);
+  pinStatusBar(B.device);
   if (flow.steps[0]?.directive.kind !== "launch") opts.log(`Warning: flow "${flow.name}" does not start with launch:, so both sides start from whatever state the apps are in.`);
 
   const startedAt = new Date().toISOString();
   const steps: StepResult[] = [];
   opts.log(`Recording both screens…`);
-  const started = await Promise.allSettled([sessions.ios.startRecording(), sessions.android.startRecording()]);
+  const started = await Promise.allSettled([A.startRecording(), B.startRecording()]);
   const startFailure = started.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
   if (startFailure) {
     // never leave the other side recording
-    await Promise.allSettled([sessions.ios.stopRecording(), sessions.android.stopRecording()]);
+    await Promise.allSettled([A.stopRecording(), B.stopRecording()]);
     throw new Error(`Could not start recording: ${startFailure.reason instanceof Error ? startFailure.reason.message : startFailure.reason}`);
   }
   await new Promise((r) => setTimeout(r, 700));
@@ -77,27 +76,25 @@ export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig
     for (const step of flow.steps) {
       const label = stepLabel(step.directive);
       opts.log(`Step ${step.index + 1}/${flow.steps.length}: ${label}`);
-      const [ios, android] = await both((s) => s.execute(step));
+      const [ra, rb] = await both((s) => s.execute(step));
+      const results = { [sa]: ra, [sb]: rb } as Record<Side, StepSideResult>;
       // give the UI a beat to react, then let animations finish on both sides before capturing
       await new Promise((r) => setTimeout(r, 400));
       await both((s) => s.settle(2500));
       const prev = steps[steps.length - 1];
       const acted = !["await", "assert", "wait", "echo"].includes(step.directive.kind);
-      await Promise.all([
-        capture(sessions.ios, step.index, ios, acted ? prev?.ios.tree : undefined, captureErrors),
-        capture(sessions.android, step.index, android, acted ? prev?.android.tree : undefined, captureErrors),
-      ]);
-      for (const side of ["ios", "android"] as Side[]) {
-        const cur = (side === "ios" ? ios : android).screenshot;
-        const before = prev?.[side].screenshot;
-        if (cur && before) (side === "ios" ? ios : android).screenChange = await screenChange(path.join(runDir, before), path.join(runDir, cur));
+      await both((s) => capture(s, step.index, results[s.side], acted && prev ? prev[s.side]?.tree : undefined, captureErrors));
+      for (const side of [sa, sb]) {
+        const cur = results[side].screenshot;
+        const before = prev?.[side]?.screenshot;
+        if (cur && before) results[side].screenChange = await screenChange(path.join(runDir, before), path.join(runDir, cur), { ignoreStatusBar: side !== "web" });
       }
-      steps.push({ index: step.index, directive: step.directive, label, ios, android });
-      if (ios.status !== android.status) opts.log(`  ↳ outcome differs: ios=${ios.status} android=${android.status}`);
-      if (sessions.ios.hasFailed && sessions.android.hasFailed) {
+      steps.push({ index: step.index, directive: step.directive, label, [sa]: ra, [sb]: rb });
+      if (ra.status !== rb.status) opts.log(`  ↳ outcome differs: ${sa}=${ra.status} ${sb}=${rb.status}`);
+      if (A.hasFailed && B.hasFailed) {
         for (const rest of flow.steps.slice(step.index + 1)) {
           const skip = (): StepSideResult => ({ status: "skip", reason: "both sides failed earlier", startMs: 0, endMs: 0 });
-          steps.push({ index: rest.index, directive: rest.directive, label: stepLabel(rest.directive), ios: skip(), android: skip() });
+          steps.push({ index: rest.index, directive: rest.directive, label: stepLabel(rest.directive), [sa]: skip(), [sb]: skip() });
         }
         break;
       }
@@ -105,9 +102,9 @@ export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig
   } finally {
     // hold the last frame for a moment so the video does not cut on the final action
     await new Promise((r) => setTimeout(r, 1200));
-    stopped = await Promise.allSettled([sessions.ios.stopRecording(), sessions.android.stopRecording()]);
+    stopped = await Promise.allSettled([A.stopRecording(), B.stopRecording()]);
   }
-  const videoOf = (side: Side, r: PromiseSettledResult<{ file: string; durationMs: number } | undefined>) => {
+  const videoOf = (side: Side, r: PromiseSettledResult<{ file: string; durationMs: number } | undefined>): VideoInfo => {
     if (r.status === "rejected") {
       captureErrors.push(`[${side}] recording could not be retrieved: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
       return { file: "", durationMs: 0, width: 0, height: 0 };
@@ -116,28 +113,30 @@ export async function runFlowLockstep(client: ArgentClient, loaded: LoadedConfig
     const probed = file ? ffprobeSize(path.join(runDir, file)) : { width: 0, height: 0, durationMs: 0 };
     return { file, durationMs: probed.durationMs || r.value?.durationMs || 0, width: probed.width, height: probed.height };
   };
-  const video = { ios: videoOf("ios", stopped[0]), android: videoOf("android", stopped[1]) };
+  const video = { [sa]: videoOf(sa, stopped[0]), [sb]: videoOf(sb, stopped[1]) } as Record<Side, VideoInfo>;
   // Rebase step times onto the video timeline: Argent resolves screen-recording-start some time
   // after the first frame is captured, and that latency differs per platform.
-  for (const side of ["ios", "android"] as Side[]) {
+  for (const side of [sa, sb]) {
     const delta = sessions[side].timelineOffset(video[side].durationMs);
-    if (sessions[side].truncated(video[side].durationMs)) opts.log(`Warning: the ${side} recording is shorter than the run (time limit ${config.recording.timeLimitSeconds}s reached?); step times were not rebased`);
+    if (sessions[side].truncated(video[side].durationMs)) opts.log(`Warning: the ${SIDE_NAME[side]} recording is shorter than the run (time limit ${config.recording.timeLimitSeconds}s reached?); step times were not rebased`);
     if (!delta) continue;
     for (const st of steps) {
-      if (st[side].status === "skip" && st[side].startMs === 0 && st[side].endMs === 0) continue;
-      st[side].startMs = Math.max(0, st[side].startMs + delta);
-      st[side].endMs = Math.max(0, st[side].endMs + delta);
+      const r = sideOf(st, side);
+      if (r.status === "skip" && r.startMs === 0 && r.endMs === 0) continue;
+      r.startMs = Math.max(0, r.startMs + delta);
+      r.endMs = Math.max(0, r.endMs + delta);
     }
   }
   if (captureErrors.length) for (const e of captureErrors) opts.log(`Warning: ${e}`);
   const run: RunRecord = {
     flow: { name: flow.name, path: flow.path, title: flow.title, description: flow.description },
+    sides: [sa, sb],
     startedAt,
     finishedAt: new Date().toISOString(),
-    devices: { ios: { id: devices.ios.id, name: devices.ios.name }, android: { id: devices.android.id, name: devices.android.name } },
+    devices: { [sa]: { id: A.device.id, name: A.device.name }, [sb]: { id: B.device.id, name: B.device.name } },
     video,
     steps,
-    ok: captureErrors.length === 0 && steps.every((s) => s.ios.status === "pass" && s.android.status === "pass"),
+    ok: captureErrors.length === 0 && steps.every((s) => sideOf(s, sa).status === "pass" && sideOf(s, sb).status === "pass"),
     ...(captureErrors.length ? { captureErrors } : {}),
   };
   fs.writeFileSync(path.join(runDir, "run.json"), JSON.stringify(run, null, 2));

@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Filip131311/crossmatch/main/assets/logo.png" alt="CrossMatch" width="330"></p>
 
-Find the behavioural differences between a native iOS app and its Android twin, and document each
-one with a side-by-side video.
+Find the behavioural differences between a native iOS app and its Android twin (or either of them
+and your web app), and document each one with a side-by-side video.
 
 Built on [Argent](https://github.com/software-mansion/argent), Software Mansion's toolkit for
 letting coding agents drive iOS simulators and Android emulators.
@@ -9,7 +9,7 @@ letting coding agents drive iOS simulators and Android emulators.
 **How it works**
 
 1. An agent explores both apps with the bundled skill and writes one short flow per feature.
-2. crossmatch replays every flow on both devices in lockstep and records both screens.
+2. crossmatch replays every flow on both platforms in lockstep and records both screens.
 3. After each step it diffs the two accessibility trees.
 4. A judge decides which differences matter and which are platform idioms.
 5. Each confirmed difference becomes a side-by-side video with callouts, and an HTML report.
@@ -28,7 +28,8 @@ crossmatch setup         # boot both devices, install both apps fresh
 Then ask your coding agent to explore both apps; it writes one flow per feature and runs
 `crossmatch compare`, which judges, renders the videos and writes `crossmatch-out/report/index.html`.
 
-**Needs:** macOS · Node 20+ · Xcode and the Android SDK · ffmpeg with libx264 · Argent 0.25+ · Claude Code (for the judge)
+**Needs:** macOS · Node 20+ · Xcode and the Android SDK · ffmpeg with libx264 · Argent 0.25+ · Claude Code (for the judge).
+For a web side: Google Chrome and Node 22+ (`"platforms": ["ios", "web"]` in the config).
 
 **Read next**
 
@@ -37,4 +38,4 @@ Then ask your coding agent to explore both apps; it writes one flow per feature 
 | [`docs/USAGE.md`](docs/USAGE.md) | commands, configuration, flow syntax |
 | [`skills/crossmatch/SKILL.md`](skills/crossmatch/SKILL.md) | what the agent does |
 | [`docs/argent-notes.md`](docs/argent-notes.md) | Argent quirks crossmatch works around |
-| [`fixtures/`](fixtures/) | the two Dog Tinder test apps |
+| [`fixtures/`](fixtures/) | the Dog Tinder test apps (iOS, Android, web) |

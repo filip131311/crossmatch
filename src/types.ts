@@ -1,5 +1,11 @@
-export type Side = "ios" | "android";
-export const SIDES: Side[] = ["ios", "android"];
+/** A platform crossmatch can drive. A run compares exactly two of them (the config's `platforms`). */
+export type Side = "ios" | "android" | "web";
+export const SIDES: Side[] = ["ios", "android", "web"];
+export const SIDE_NAME: Record<Side, string> = { ios: "iOS", android: "Android", web: "Web" };
+/** The two platforms a project compares, in panel order (left, right). */
+export type Pair = [Side, Side];
+export const DEFAULT_PAIR: Pair = ["ios", "android"];
+export type NativeSide = Exclude<Side, "web">;
 
 export interface SideConfig {
   /** Path to the .app directory (iOS) or .apk file (Android). Relative to the config file. */
@@ -8,6 +14,21 @@ export interface SideConfig {
   bundleId: string;
   /** Simulator UDID / name, or Android serial / AVD name. Optional: a booted device is picked. */
   device?: string;
+}
+
+export interface WebConfig {
+  /** The page a `launch:` step opens (the web app's entry point). */
+  url: string;
+  /** Chrome DevTools port. Argent always discovers 9222; any other port is registered with Argent. */
+  port: number;
+  /** CSS viewport of the browser crossmatch starts: a phone-sized window by default. */
+  viewport: { width: number; height: number; deviceScaleFactor: number };
+  /** Run Chrome without a window (exact viewport). A windowed Chrome's viewport is only approximate. */
+  headless: boolean;
+  /** Chrome/Chromium executable. Default: CROSSMATCH_CHROME, then the usual install locations. */
+  browser?: string;
+  /** User agent override, e.g. a mobile Safari or Chrome string for sites that sniff it. */
+  userAgent?: string;
 }
 
 export interface Limits {
@@ -29,8 +50,11 @@ export interface Brand {
 }
 
 export interface CrossmatchConfig {
+  /** The two platforms to compare. Default: ["ios", "android"]. */
+  platforms: Pair;
   ios: SideConfig;
   android: SideConfig;
+  web: WebConfig;
   /** Output directory, relative to the config file. */
   out: string;
   /** Directory with flow YAML files, relative to the config file. */
@@ -79,6 +103,7 @@ export interface Selector {
 }
 
 export type Directive =
+  /** `bundleId` is the app to (re)start; on web it is the URL to open. */
   | { kind: "launch"; bundleId?: string; perPlatform?: Partial<Record<Side, string>> }
   | { kind: "tap"; selector?: Selector; x?: number; y?: number; times?: number }
   | { kind: "long-press"; selector: Selector; duration?: number }
@@ -130,20 +155,23 @@ export interface StepSideResult {
   captureError?: string;
 }
 
-export interface StepResult {
+/** One step on both sides of the run's pair (only those two keys are present). */
+export type StepResult = {
   index: number;
   directive: Directive;
   label: string;
-  ios: StepSideResult;
-  android: StepSideResult;
-}
+} & Partial<Record<Side, StepSideResult>>;
+
+export interface VideoInfo { file: string; durationMs: number; width: number; height: number }
 
 export interface RunRecord {
   flow: { name: string; path: string; title?: string; description?: string };
+  /** The compared platforms. Absent in runs recorded before web support: those are ios/android. */
+  sides?: Pair;
   startedAt: string;
   finishedAt: string;
-  devices: Record<Side, { id: string; name: string }>;
-  video: Record<Side, { file: string; durationMs: number; width: number; height: number }>;
+  devices: Partial<Record<Side, { id: string; name: string }>>;
+  video: Partial<Record<Side, VideoInfo>>;
   steps: StepResult[];
   ok: boolean;
   captureErrors?: string[];
@@ -200,6 +228,23 @@ export interface Verdict {
   key?: string;
   /** Side-by-side video file inside the run directory, once rendered. */
   video?: string;
+}
+
+/** The platforms a stored run compared. */
+export function runPair(run: RunRecord): Pair {
+  return run.sides ?? DEFAULT_PAIR;
+}
+
+/** The other side of the pair. */
+export function otherSide(pair: Pair, side: Side): Side {
+  return side === pair[0] ? pair[1] : pair[0];
+}
+
+/** A step's result on one side of its run's pair. */
+export function sideOf(step: StepResult, side: Side): StepSideResult {
+  const r = step[side];
+  if (!r) throw new Error(`step ${step.index + 1} has no ${SIDE_NAME[side]} result`);
+  return r;
 }
 
 export interface RunOutput {

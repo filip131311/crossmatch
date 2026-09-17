@@ -5,10 +5,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { argentVersion, connectArgent } from "./argent.js";
 import { ffmpegBin } from "./ffmpeg.js";
-import { CONFIG_FILE, flowsDir, loadConfig, outDir, resolveFrom } from "./config.js";
+import { CONFIG_FILE, flowsDir, loadConfig, outDir, parsePlatforms, resolveFrom, type LoadedConfig } from "./config.js";
 import { runInit } from "./init.js";
 import { renderTree } from "./describe.js";
-import { listDevices, resolveBothDevices, pinStatusBar } from "./devices.js";
+import { deviceOf, listDevices, resolveDevices, pinStatusBar } from "./devices.js";
+import { findBrowser } from "./cdp.js";
 import { listFlows, parseFlow } from "./flow.js";
 import { runFlowLockstep, runDirFor } from "./lockstep.js";
 import { diffRun } from "./diff.js";
@@ -18,7 +19,7 @@ import { writeReport } from "./report.js";
 import { SideSession } from "./runner.js";
 import { refreshScreenChange } from "./pixels.js";
 import { coverageAdd, coverageStatus, budgetCheck } from "./coverage.js";
-import type { RunOutput, Side } from "./types.js";
+import { DEFAULT_PAIR, SIDE_NAME, type RunOutput, type Side } from "./types.js";
 
 const log = (s: string) => console.error(s);
 
@@ -31,11 +32,23 @@ function loadRunOutput(runDir: string): RunOutput {
   return { run: JSON.parse(fs.readFileSync(run, "utf8")), candidates: [] };
 }
 const program = new Command();
-program.name("crossmatch").description("Find and document behavioural differences between an iOS app and its Android twin.").version("0.1.0");
+program.name("crossmatch").description("Find and document behavioural differences between two versions of an app: iOS, Android or web.").version("0.1.0");
 program.option("-c, --config <file>", `path to ${CONFIG_FILE}`);
+program.option("-p, --platforms <a,b>", "the two platforms to compare, overriding the config (e.g. ios,web)");
 
-function cfg() {
-  return loadConfig(program.opts().config);
+function cfg(): LoadedConfig {
+  const loaded = loadConfig(program.opts().config);
+  const override = program.opts().platforms;
+  if (override) loaded.config.platforms = parsePlatforms(override, "--platforms");
+  return loaded;
+}
+
+/** `both`, or one side of the configured pair. */
+function sidesFrom(loaded: LoadedConfig, value: string): Side[] {
+  const pair = loaded.config.platforms;
+  if (value === "both") return [...pair];
+  if (!pair.includes(value as Side)) throw new Error(`--side must be ${pair.join(", ")} or both (the configured platforms are ${pair.join(" and ")})`);
+  return [value as Side];
 }
 
 program
@@ -44,8 +57,10 @@ program
   .option("--no-argent", "do not install or initialise Argent")
   .option("--no-scan", "do not look for built apps; write the config with placeholders")
   .option("-f, --force", "overwrite an existing config", false)
+  .option("--web-url <url>", "the web app's address (with --platforms including web)")
   .action(async (o) => {
-    await runInit(process.cwd(), { argent: o.argent, force: o.force, scan: o.scan, log });
+    const platforms = program.opts().platforms ? parsePlatforms(program.opts().platforms, "--platforms") : undefined;
+    await runInit(process.cwd(), { argent: o.argent, force: o.force, scan: o.scan, platforms, webUrl: o.webUrl, log });
   });
 
 program
@@ -64,19 +79,28 @@ program
     } catch (e) {
       fail(e instanceof Error ? e.message : String(e));
     }
-    spawnSync("adb", ["version"]).status === 0 ? pass("adb") : fail("adb not on PATH (needed to pin the Android status bar and refresh Argent's tree helper)");
-    spawnSync("xcrun", ["simctl", "help"]).status === 0 ? pass("xcrun simctl") : fail("xcrun simctl not available (needed to pin the iOS status bar)");
     const cl = spawnSync("claude", ["--version"], { encoding: "utf8" });
     cl.status === 0 ? pass(`claude CLI ${cl.stdout.trim()} (LLM judge available)`) : console.log("· claude CLI not found: `crossmatch judge` will fall back to rule-based verdicts");
-    let loaded;
+    let loaded: LoadedConfig | undefined;
     try {
       loaded = cfg();
-      pass(`config ${loaded.file}`);
+      pass(`config ${loaded.file} (comparing ${loaded.config.platforms.map((s) => SIDE_NAME[s]).join(" and ")})`);
     } catch (e) {
       fail(String(e instanceof Error ? e.message : e));
-      process.exit(1);
     }
-    for (const side of ["ios", "android"] as Side[]) {
+    // without a config, still check the tools of the default pair
+    const pair = loaded?.config.platforms ?? DEFAULT_PAIR;
+    if (pair.includes("android")) spawnSync("adb", ["version"]).status === 0 ? pass("adb") : fail("adb not on PATH (needed to pin the Android status bar and refresh Argent's tree helper)");
+    if (pair.includes("ios")) spawnSync("xcrun", ["simctl", "help"]).status === 0 ? pass("xcrun simctl") : fail("xcrun simctl not available (needed to pin the iOS status bar)");
+    if (!loaded) process.exit(1);
+    for (const side of pair) {
+      if (side === "web") {
+        const browser = findBrowser(loaded.config.web);
+        browser ? pass(`web browser ${browser}`) : fail("no Chrome found for the web side (install Google Chrome, or set web.browser or CROSSMATCH_CHROME)");
+        typeof WebSocket !== "undefined" ? pass(`Node ${process.version} (records the web side)`) : fail(`the web side needs Node 22 or newer (found ${process.version})`);
+        pass(`web url ${loaded.config.web.url}`);
+        continue;
+      }
       const app = resolveFrom(loaded.root, loaded.config[side].app);
       fs.existsSync(app) ? pass(`${side} app ${app}`) : fail(`${side} app not found: ${app}`);
     }
@@ -84,7 +108,7 @@ program
       const client = await connectArgent();
       pass(`argent transport: ${client.describeTransport()}`);
       const { devices } = await listDevices(client);
-      const booted = devices.filter((d: any) => d.state === "Booted" || d.state === "device");
+      const booted = devices.filter((d: any) => d.state === "Booted" || d.state === "device" || d.state === "Running");
       pass(`${devices.length} devices known, ${booted.length} booted: ${booted.map((d: any) => `${d.platform}:${d.name ?? d.avdName ?? d.udid ?? d.serial}`).join(", ") || "none"}`);
     } catch (e) {
       fail(`argent unreachable: ${e instanceof Error ? e.message : e}`);
@@ -104,41 +128,55 @@ program
 
 program
   .command("setup")
-  .description("boot both devices, install both apps fresh, pin the status bars")
-  .option("--no-install", "do not reinstall the apps")
+  .description("boot both devices (or start the browser), install both apps fresh, pin the status bars")
+  .option("--no-install", "do not reinstall the apps (or clear the site data)")
   .action(async (o) => {
     const loaded = cfg();
     const client = await connectArgent();
-    const devices = await resolveBothDevices(client, loaded, log);
-    for (const side of ["ios", "android"] as Side[]) {
-      log(`${side}: ${devices[side].name} (${devices[side].id})`);
+    const devices = await resolveDevices(client, loaded, log);
+    for (const side of loaded.config.platforms) {
+      const device = deviceOf(devices, side);
+      log(`${side}: ${device.name} (${device.id})`);
+      if (side === "web") {
+        const session = sideSession(loaded, client, devices, side, path.join(outDir(loaded), "scratch"));
+        if (o.install) {
+          log(`web: clearing the site data of ${loaded.config.web.url}`);
+          await session.reinstall("");
+        }
+        await client.call("open-url", { udid: device.id, url: loaded.config.web.url });
+        continue;
+      }
       if (o.install) {
         log(`${side}: installing ${loaded.config[side].app}`);
-        await client.call("reinstall-app", { udid: devices[side].id, bundleId: loaded.config[side].bundleId, appPath: resolveFrom(loaded.root, loaded.config[side].app) });
+        await client.call("reinstall-app", { udid: device.id, bundleId: loaded.config[side].bundleId, appPath: resolveFrom(loaded.root, loaded.config[side].app) });
       }
-      pinStatusBar(devices[side]);
-      await client.call("launch-app", { udid: devices[side].id, bundleId: loaded.config[side].bundleId });
+      pinStatusBar(device);
+      await client.call("launch-app", { udid: device.id, bundleId: loaded.config[side].bundleId });
     }
-    log("Both apps are installed and running.");
+    log("Both sides are ready.");
   });
+
+function sideSession(loaded: LoadedConfig, client: Awaited<ReturnType<typeof connectArgent>>, devices: Awaited<ReturnType<typeof resolveDevices>>, side: Side, dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  return new SideSession(client, deviceOf(devices, side), { bundleId: side === "web" ? "" : loaded.config[side].bundleId, web: loaded.config.web, runDir: dir, showTouches: false, timeLimitSeconds: 60, log });
+}
 
 async function sessionFor(side: Side) {
   const loaded = cfg();
+  sidesFrom(loaded, side);
   const client = await connectArgent();
-  const devices = await resolveBothDevices(client, loaded, log);
-  const dir = path.join(outDir(loaded), "scratch");
-  fs.mkdirSync(dir, { recursive: true });
-  return { loaded, client, devices, session: new SideSession(client, devices[side], { bundleId: loaded.config[side].bundleId, runDir: dir, showTouches: false, timeLimitSeconds: 60, log }) };
+  const devices = await resolveDevices(client, loaded, log);
+  return { loaded, client, devices, session: sideSession(loaded, client, devices, side, path.join(outDir(loaded), "scratch")) };
 }
 
 program
   .command("describe")
   .description("print the normalised UI tree of one or both sides")
-  .option("-s, --side <side>", "ios | android | both", "both")
+  .option("-s, --side <side>", "one of the configured platforms (ios | android | web), or both", "both")
   .option("--json", "print JSON")
   .option("--fresh", "restart Argent's Android tree helper first (use when the tree does not match the screen)")
   .action(async (o) => {
-    const sides: Side[] = o.side === "both" ? ["ios", "android"] : [o.side];
+    const sides = sidesFrom(cfg(), o.side);
     const out: Record<string, unknown> = {};
     for (const side of sides) {
       const { session, loaded } = await sessionFor(side);
@@ -160,13 +198,13 @@ program
 program
   .command("argent <tool>")
   .description("call any argent tool on one side; the device id is injected")
-  .requiredOption("-s, --side <side>", "ios | android")
+  .requiredOption("-s, --side <side>", "one of the configured platforms: ios | android | web")
   .option("-a, --args <json>", "tool arguments as JSON", "{}")
   .action(async (tool, o) => {
-    const { session, client } = await sessionFor(o.side);
-    const { loaded } = await sessionFor(o.side);
-    const wantsBundle = /app$|^launch-app$|^describe$|^await-ui-element$/.test(tool);
-    const res = await client.call(tool, { udid: session.device.id, ...(wantsBundle ? { bundleId: loaded.config[o.side as Side].bundleId } : {}), ...JSON.parse(o.args) });
+    const { session, client, loaded } = await sessionFor(o.side);
+    const side = o.side as Side;
+    const wantsBundle = side !== "web" && /app$|^launch-app$|^describe$|^await-ui-element$/.test(tool);
+    const res = await client.call(tool, { udid: session.device.id, ...(wantsBundle ? { bundleId: loaded.config[side as "ios" | "android"].bundleId } : {}), ...JSON.parse(o.args) });
     console.log(JSON.stringify(res, null, 2));
   });
 
@@ -175,12 +213,13 @@ program
   .description("register a screen the exploration reached on both sides (coverage + budget), saving trees and screenshots")
   .option("--note <text>", "what this screen is")
   .action(async (name, o) => {
-    const { loaded, client, devices } = await sessionFor("ios");
+    const loaded = cfg();
+    const client = await connectArgent();
+    const devices = await resolveDevices(client, loaded, log);
     const dir = path.join(outDir(loaded), "screens");
-    fs.mkdirSync(dir, { recursive: true });
     const result: Record<string, unknown> = {};
-    for (const side of ["ios", "android"] as Side[]) {
-      const s = new SideSession(client, devices[side], { bundleId: loaded.config[side].bundleId, runDir: dir, showTouches: false, timeLimitSeconds: 60, log });
+    for (const side of loaded.config.platforms) {
+      const s = sideSession(loaded, client, devices, side, dir);
       const tree = await s.describe();
       const shot = await s.screenshot(`${name}-${side}.png`, 0.5);
       fs.writeFileSync(path.join(dir, `${name}-${side}.txt`), renderTree(tree));
@@ -201,8 +240,8 @@ program
 
 program
   .command("compare [flows...]")
-  .description("run flows on both devices in lockstep with recording, then diff (default: every flow in the flows dir)")
-  .option("--fresh", "reinstall both apps before each flow", false)
+  .description("run flows on both sides in lockstep with recording, then diff (default: every flow in the flows dir)")
+  .option("--fresh", "reinstall both apps (on web: clear the site data) before each flow", false)
   .option("--no-judge", "skip the judge")
   .option("--no-render", "skip rendering side-by-side videos")
   .action(async (flows: string[], o) => {
@@ -210,7 +249,7 @@ program
     const files = flows.length ? flows.map((f) => (fs.existsSync(f) ? path.resolve(f) : path.join(flowsDir(loaded), f.endsWith(".yaml") ? f : `${f}.yaml`))) : listFlows(flowsDir(loaded));
     if (!files.length) throw new Error(`No flows found in ${flowsDir(loaded)}`);
     const client = await connectArgent();
-    const devices = await resolveBothDevices(client, loaded, log);
+    const devices = await resolveDevices(client, loaded, log);
     const failures: string[] = [];
     for (const file of files) {
       let flowName = path.basename(file);

@@ -1,24 +1,28 @@
 ---
 name: crossmatch
-description: Find and document behavioural differences between a native iOS app and its Android twin. Use when the user has an iOS build and an Android build of "the same" app and wants to know where they diverge, wants a cross-platform parity check, or asks for side-by-side videos of platform differences. Drives both devices through Argent, records lockstep videos, judges what matters, and produces an HTML report.
+description: Find and document behavioural differences between two versions of the same app — a native iOS app and its Android twin, or either of them against the web app. Use when the user has builds of "the same" app on two platforms (iOS, Android, web) and wants to know where they diverge, wants a cross-platform parity check, or asks for side-by-side videos of platform differences. Drives both sides through Argent, records lockstep videos, judges what matters, and produces an HTML report.
 ---
 
 # crossmatch — cross-platform parity exploration
 
-You are the explorer. `crossmatch` (a CLI on top of Argent) is your instrument: it drives an iOS
-simulator and an Android emulator **in lockstep**, records both screens, diffs the accessibility
+You are the explorer. `crossmatch` (a CLI on top of Argent) is your instrument: it drives two
+platforms **in lockstep** (the config's `platforms`: an iOS simulator, an Android emulator, or Chrome
+with a phone-sized viewport for the web app; iOS and Android by default), records both screens, diffs the accessibility
 trees after every step, judges the candidates with a rubric, renders branded side-by-side videos
 with callouts, and writes the report. Your job is to walk both apps, find every feature, and turn
 each feature into a flow file. Do not stop when you find the first difference: the goal is the
 complete list.
 
 Everything below assumes `crossmatch.config.json` exists in the project (`crossmatch init` writes one).
+The examples use `ios` and `android`; with `web` in `platforms`, use `-s web` the same way. On web,
+`--fresh` clears the site data, `button: back` is the browser's back, and a `swipe` without `from`
+scrolls the page (a `swipe` from an element is a mouse drag and does not scroll a list).
 
 ## 0. Setup (once)
 
 ```bash
 crossmatch doctor        # argent, ffmpeg+libx264, adb, simctl, claude (judge), config, apps
-crossmatch setup         # boots both devices, reinstalls both apps fresh, pins status bars, launches
+crossmatch setup         # boots both devices (or starts Chrome), reinstalls both apps fresh, pins status bars, launches
 crossmatch status        # exploration budget: screens / flows / steps / minutes vs limits
 ```
 
@@ -96,13 +100,13 @@ steps:
   - assert: { text: { in: { id: favourites-count }, equals: "1" } }
 ```
 
-Directives: `launch` (bundle id, or `{ ios: …, android: … }`), `tap` (selector, `{on, times}` or
+Directives: `launch` (bundle id, or `{ ios: …, android: …, web: <url> }`), `tap` (selector, `{on, times}` or
 `{x, y}`), `long-press {on, duration}`, `swipe` (`up|down|left|right` or `{direction, from, duration}`;
 the direction is the finger's travel), `type {into, text, submit}`, `scroll-to {target, direction,
 maxSwipes}`, `await` / `assert` with a condition — `{ visible: sel }`, `{ exists: sel }`,
 `{ hidden: sel }`, `{ idle: true }`, `{ text: { in: sel, contains|equals|matches: "…" } }` — plus
 `timeout` (ms) on `await`, `wait <ms>`, `echo <message>`, `button <home|back>`,
-`when: { platform: ios|android }` with nested `steps:`, `tool: <argent tool>` with `args:`.
+`when: { platform: ios|android|web }` with nested `steps:`, `tool: <argent tool>` with `args:`.
 Selectors: `{ id }`, `{ text }` (case-insensitive substring), `{ text: { matches: regex } }`,
 `{ role }`, or a bare string (id first, then text).
 
@@ -145,7 +149,7 @@ not installed (rule-based verdicts report everything), write `verdicts.json` you
 ```
 
 Write titles and descriptions the way the judge does: a title of one plain sentence under 70
-characters naming the sides as iOS and Android, a description of at most two short sentences (what
+characters naming the sides as the platforms compared (iOS, Android, Web), a description of at most two short sentences (what
 each side does, why it matters), callout labels of at most four words, and never step numbers, element
 ids, pixel percentages or detection details. crossmatch trims anything longer.
 

@@ -1,30 +1,36 @@
 # crossmatch usage
 
-Find and document behavioural differences between a native iOS app and its Android twin.
+Find and document behavioural differences between two versions of the same app: a native iOS app and
+its Android twin by default, or either of them against the web app.
 
 `crossmatch` sits on top of [Argent](https://docs.swmansion.com/argent). An agent (Claude Code with the
-bundled skill) explores both apps and writes one flow per feature; `crossmatch` replays each flow on an
-iOS simulator and an Android emulator **in lockstep**, records both screens, diffs the accessibility
-trees after every step, has a judge decide which differences matter, renders branded side-by-side
-videos with callouts, and writes an HTML report.
+bundled skill) explores both apps and writes one flow per feature; `crossmatch` replays each flow on
+the two platforms (an iOS simulator, an Android emulator, or Chrome with a phone-sized viewport)
+**in lockstep**, records both screens, diffs the accessibility trees after every step, has a judge
+decide which differences matter, renders branded side-by-side videos with callouts, and writes an
+HTML report.
 
 ```
 crossmatch init            write crossmatch.config.json
 crossmatch doctor          check argent, ffmpeg (libx264), adb, simctl, claude, config, apps
-crossmatch setup           boot both devices, install both apps fresh, pin status bars
+crossmatch setup           boot both devices (or start Chrome), install both apps fresh, pin status bars
 crossmatch describe        normalised UI tree of both sides (what the agent authors flows from)
 crossmatch screen <name>   register a screen reached on both sides (coverage + budget)
 crossmatch compare [flow]  lockstep run + diff + judge + videos + report
 crossmatch judge <run>     re-judge, or import human verdicts (--from)
 crossmatch render <run>    re-render side-by-side videos
 crossmatch report          rebuild the HTML report
-crossmatch argent <tool>   call any Argent tool on one side (-s ios|android)
+crossmatch argent <tool>   call any Argent tool on one side (-s ios|android|web)
 ```
+
+Every command takes `-p, --platforms <a,b>` to override the configured pair for one call.
 
 ## Requirements
 
 - macOS or Linux (Windows is untested). Node 20+, `ffmpeg`/`ffprobe` with libx264 (macOS: `brew install ffmpeg`, and put `/opt/homebrew/bin`
   first on PATH before Argent's tool-server starts), Xcode (simctl), Android SDK (adb, emulator).
+- For the web side: Google Chrome (or another Chromium browser via `web.browser` / `CROSSMATCH_CHROME`)
+  and Node 22+. Xcode or the Android SDK are only needed for the platforms you compare.
 - Argent 0.25+ on PATH (`npm i -g @swmansion/argent`) or `CROSSMATCH_ARGENT_BIN=/path/to/cli.js`.
 - Claude Code CLI for the LLM judge (optional; without it every candidate is reported with a
   rule-based verdict for a human to review).
@@ -35,8 +41,10 @@ crossmatch argent <tool>   call any Argent tool on one side (-s ios|android)
 
 ```json
 {
+  "platforms": ["ios", "android"],
   "ios":     { "app": "build/App.app",     "bundleId": "com.example.app", "device": "iPhone 17 Pro" },
   "android": { "app": "build/app-debug.apk", "bundleId": "com.example.app", "device": "Pixel_9" },
+  "web":     { "url": "http://localhost:3000", "port": 9222, "viewport": { "width": 390, "height": 844, "deviceScaleFactor": 2 }, "headless": true },
   "out": "crossmatch-out",
   "flows": "flows",
   "limits": { "maxScreens": 500, "maxFlows": 200, "maxSteps": 20000, "maxMinutes": 720 },
@@ -46,12 +54,35 @@ crossmatch argent <tool>   call any Argent tool on one side (-s ios|android)
 }
 ```
 
+`platforms` names the two platforms to compare, left and right in the videos: any two of `ios`,
+`android` and `web` (default `["ios", "android"]`). Only the blocks of the chosen platforms are used.
+`crossmatch init --platforms ios,web --web-url http://localhost:3000` writes a config for a web pair.
+
 `limits` bound the exploration; the defaults are large so that a small app is explored completely.
 `judgeRules` are plain-English, app-specific exceptions added to the judge's rubric.
 
+## The web side
+
+Argent drives a Chromium page (describe, tap, type, scroll, screenshot) but cannot start a browser,
+record it or reset it, so crossmatch does those itself over the Chrome DevTools Protocol:
+
+- **Browser** — when nothing listens on `web.port`, crossmatch starts Chrome there (headless by
+  default, with its own profile in `crossmatch-out/web-profile`) and emulates the `viewport` as a
+  mobile device on every command. A browser you started yourself with `--remote-debugging-port` is
+  used as it is, apart from the viewport (and `--fresh` / `setup` clearing the web app's site data). Argent always finds port 9222; crossmatch registers any
+  other port with Argent.
+- **launch** opens `web.url` (or `launch: { web: <url> }`), a full page load that drops in-memory
+  state like an app restart. **`--fresh`** clears the cookies, storage and caches of `web.url`'s origin
+  only (other sites keep theirs) instead of reinstalling an app.
+- **Recording** — the page is recorded from screencast frames and encoded with ffmpeg.
+- **Gestures** — a `swipe` without `from` scrolls the page with the mouse wheel; a `swipe` from an
+  element and `long-press` are mouse drags, which move draggable things (cards, carousels) but never
+  scroll a list: to scroll on web, swipe without `from` or use `scroll-to`. `button: back` goes back in the browser history; other
+  buttons fail on web.
+
 ## How a difference becomes an artifact
 
-1. **Lockstep run** — every flow step starts on both devices at the same moment; the next step waits
+1. **Lockstep run** — every flow step starts on both sides at the same moment; the next step waits
    for both. Both screens are recorded (`trimStatic` off, so the two timelines stay aligned) and after
    every step both trees and screenshots are captured. `runs/<flow>/run.json`.
 2. **Diff** — mechanical candidates: a step that passes on one side and fails on the other, controls
@@ -78,13 +109,17 @@ the flows for the bundled Dog Tinder fixture apps.
 ## Fixtures
 
 `fixtures/dogtinder-ios` (SwiftUI) and `fixtures/dogtinder-android` (Compose) are near-identical apps
-with five planted differences, documented in `fixtures/SPEC.md`. They are what the tool is tested
-against:
+with five planted differences, documented in `fixtures/SPEC.md`. `fixtures/dogtinder-web` is a
+single-page web version that behaves like the iOS app, with one planted difference of its own. They are
+what the tool is tested against:
 
 ```bash
 (cd fixtures/dogtinder-ios && xcodegen generate && xcodebuild -scheme DogTinder -sdk iphonesimulator -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' build)
 (cd fixtures/dogtinder-android && JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew assembleDebug)
 crossmatch doctor && crossmatch setup && crossmatch compare
+# iOS against web
+(cd fixtures/dogtinder-web && python3 -m http.server 5178) &
+crossmatch --platforms ios,web compare   # with "web": { "url": "http://127.0.0.1:5178/" } in the config
 ```
 
 ## Development

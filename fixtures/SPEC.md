@@ -80,6 +80,12 @@ Tab ids: `tab-discover`, `tab-matches`, `tab-settings`.
 Tab bar vs Material NavigationBar, nav-bar back vs top-app-bar arrow, iOS Toggle vs Material Switch, fonts,
 transitions, alert styling. These are NOT bugs and should not be "fixed" into pixel parity.
 
+## Web version
+`dogtinder-web/index.html` is a single static page that follows this spec with the **iOS** behaviour
+for D1–D5 (match dialog, disabled empty Send, persisting switch), used to test `"platforms": ["ios", "web"]`.
+Ids are HTML `id` attributes. One planted web-only difference:
+- **W1 — content/units.** Settings "Max distance" reads `"<n> mi"` (iOS: `"<n> km"`).
+
 ## Accessibility ids (required for both platforms)
 Every element listed with an id above must expose it:
 - iOS: `.accessibilityIdentifier("<id>")` on the control. Text elements need no id.

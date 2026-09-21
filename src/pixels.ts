@@ -1,7 +1,8 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { runPair, type RunRecord } from "./types.js";
 
-/** Fraction of pixels that differ noticeably between two same-size screenshots (status bar ignored). */
-export async function screenChange(before: string, after: string): Promise<number | undefined> {
+/** Fraction of pixels that differ noticeably between two same-size screenshots (the status bar ignored on devices). */
+export async function screenChange(before: string, after: string, opts: { ignoreStatusBar?: boolean } = {}): Promise<number | undefined> {
   try {
     const [a, b] = await Promise.all([loadImage(before), loadImage(after)]);
     if (a.width !== b.width || a.height !== b.height) return undefined;
@@ -9,7 +10,7 @@ export async function screenChange(before: string, after: string): Promise<numbe
     const h = Math.round((a.height * w) / a.width);
     const da = pixels(a, w, h);
     const db = pixels(b, w, h);
-    const top = Math.round(h * 0.06);
+    const top = opts.ignoreStatusBar === false ? 0 : Math.round(h * 0.06);
     let changed = 0;
     let total = 0;
     for (let y = top; y < h; y++) {
@@ -34,13 +35,13 @@ function pixels(img: Awaited<ReturnType<typeof loadImage>>, w: number, h: number
 }
 
 /** (Re)compute `screenChange` for every step of a stored run from its screenshots. */
-export async function refreshScreenChange(run: import("./types.js").RunRecord, runDir: string): Promise<void> {
+export async function refreshScreenChange(run: RunRecord, runDir: string): Promise<void> {
   const path = await import("node:path");
   for (let i = 1; i < run.steps.length; i++) {
-    for (const side of ["ios", "android"] as const) {
-      const cur = run.steps[i][side].screenshot;
-      const before = run.steps[i - 1][side].screenshot;
-      if (cur && before) run.steps[i][side].screenChange = await screenChange(path.join(runDir, before), path.join(runDir, cur));
+    for (const side of runPair(run)) {
+      const cur = run.steps[i][side]?.screenshot;
+      const before = run.steps[i - 1][side]?.screenshot;
+      if (cur && before) run.steps[i][side]!.screenChange = await screenChange(path.join(runDir, before), path.join(runDir, cur), { ignoreStatusBar: side !== "web" });
     }
   }
 }

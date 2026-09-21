@@ -1,0 +1,175 @@
+<!doctype html>
+<!--
+  DogTinder, web version of the crossmatch fixture (see ../SPEC.md). It behaves like the iOS app,
+  with one planted web-only difference:
+  - W1 (content/units): Settings "Max distance" reads "<n> mi" (iOS: "<n> km").
+  Serve it over http (e.g. `python3 -m http.server 5178` in this folder) so site data can be cleared.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DogTinder</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 17px/1.35 -apple-system, "Helvetica Neue", Arial, sans-serif; background: #fff; color: #111; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  header { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; min-height: 56px; }
+  header h1 { margin: 0; font-size: 30px; font-weight: 700; }
+  header button { font-size: 17px; }
+  main { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
+  nav { display: flex; border-top: 1px solid #ddd; background: #f8f8f8; }
+  nav button { flex: 1; padding: 12px 0 18px; border: 0; background: none; font-size: 14px; color: #777; }
+  nav button[aria-selected="true"] { color: #0a7cff; font-weight: 600; }
+  button { font: inherit; cursor: pointer; }
+  .art { border-radius: 18px; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-size: 26px; font-weight: 700; border: 0; width: 100%; }
+  .art .emoji { font-size: 90px; }
+  .card { border: 0; background: none; padding: 0; width: 100%; text-align: left; color: inherit; }
+  .card p { margin: 6px 0 0; }
+  .actions { display: flex; gap: 16px; margin-top: 18px; }
+  .actions button { flex: 1; padding: 14px; border-radius: 14px; border: 0; font-weight: 600; color: #fff; }
+  #nope-button { background: #e63946; } #like-button { background: #2a9d8f; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eee; width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; color: inherit; }
+  .row .mini { width: 44px; height: 44px; border-radius: 10px; }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid #eee; gap: 8px; }
+  .stepper button { width: 44px; height: 36px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+  .segments { display: flex; gap: 4px; }
+  .segments button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+  .segments button[aria-pressed="true"] { background: #0a7cff; color: #fff; border-color: #0a7cff; }
+  #reset-swipes-button { margin-top: 24px; width: 100%; padding: 14px; border-radius: 14px; border: 0; background: #eee; color: #e63946; font-weight: 600; }
+  .messages { display: flex; flex-direction: column; gap: 8px; min-height: 300px; }
+  .bubble { align-self: flex-end; background: #0a7cff; color: #fff; padding: 8px 12px; border-radius: 16px; min-height: 36px; min-width: 40px; }
+  .composer { display: flex; gap: 8px; padding: 8px 16px 16px; }
+  .composer input { flex: 1; padding: 10px 12px; border-radius: 18px; border: 1px solid #ccc; font: inherit; }
+  .composer button { padding: 0 16px; border-radius: 18px; border: 0; background: #0a7cff; color: #fff; }
+  .composer button:disabled { background: #bbb; }
+  dialog { border: 0; border-radius: 16px; padding: 20px; width: 290px; text-align: center; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h2 { margin: 0 0 6px; font-size: 19px; }
+  dialog .buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  dialog .buttons button { padding: 10px; border-radius: 10px; border: 0; background: #f0f0f0; color: #0a7cff; }
+  .empty { color: #777; text-align: center; margin-top: 80px; }
+  #start-over-button { display: block; margin: 16px auto; padding: 12px 20px; border-radius: 12px; border: 0; background: #0a7cff; color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="header"></header>
+  <main id="main"></main>
+  <div id="composer-slot"></div>
+  <nav id="tabs">
+    <button id="tab-discover">Discover</button>
+    <button id="tab-matches">Matches</button>
+    <button id="tab-settings">Settings</button>
+  </nav>
+</div>
+<dialog id="match-dialog">
+  <h2>It's a match!</h2>
+  <p id="match-message"></p>
+  <div class="buttons">
+    <button id="keep-swiping">Keep swiping</button>
+    <button id="say-hi">Say hi</button>
+  </div>
+</dialog>
+<script>
+const DOGS = [
+  { id: "biscuit", name: "Biscuit", age: 3, breed: "Corgi", km: 2, bio: "Loves belly rubs and long naps in the sun.", mutual: true, colour: "#F4A261" },
+  { id: "rex", name: "Rex", age: 5, breed: "German Shepherd", km: 4, bio: "Serious about fetch. Not serious about anything else.", mutual: false, colour: "#264653" },
+  { id: "mochi", name: "Mochi", age: 1, breed: "Shiba Inu", km: 1, bio: "Small, fluffy, judging you.", mutual: false, colour: "#E9C46A" },
+  { id: "luna", name: "Luna", age: 4, breed: "Husky", km: 7, bio: "Will sing you the song of her people.", mutual: true, colour: "#2A9D8F" },
+  { id: "bruno", name: "Bruno", age: 6, breed: "Boxer", km: 3, bio: "Gentle giant with a drool problem.", mutual: false, colour: "#8D5B4C" },
+  { id: "pepper", name: "Pepper", age: 2, breed: "Dalmatian", km: 5, bio: "Spots on the outside, chaos on the inside.", mutual: false, colour: "#6D6875" },
+];
+const state = { tab: "discover", stack: [], index: 0, matches: [], chats: {}, distance: 10, notifications: false, showMe: "all", draft: "" };
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function like(dog) {
+  state.index++;
+  if (dog.mutual) {
+    if (!state.matches.includes(dog.id)) state.matches.push(dog.id);
+    $("#match-message").textContent = `You and ${dog.name} liked each other.`;
+    $("#match-dialog").showModal();
+  }
+}
+
+function render() {
+  const top = state.stack[state.stack.length - 1];
+  for (const t of ["discover", "matches", "settings"]) $(`#tab-${t}`).setAttribute("aria-selected", String(state.tab === t));
+  const header = $("#header");
+  const main = $("#main");
+  $("#composer-slot").innerHTML = "";
+  if (top?.screen === "profile") {
+    const d = DOGS.find((x) => x.id === top.dog);
+    header.innerHTML = `<button id="back" aria-label="Back">‹ Back</button><h1>${esc(d.name)}</h1>`;
+    main.innerHTML = `<div class="art" style="background:${d.colour}"><span class="emoji">🐶</span>${esc(d.name)}</div>
+      <p>${esc(d.name)}, ${d.age}</p><p>${esc(d.breed)}</p><p>${d.km} km away</p><p>${esc(d.bio)}</p>
+      <div class="actions"><button id="nope-button">Nope</button><button id="like-button">Like</button></div>`;
+    $("#back").onclick = () => { state.stack.pop(); render(); };
+    $("#nope-button").onclick = () => { state.index++; state.stack.pop(); render(); };
+    $("#like-button").onclick = () => { state.stack.pop(); like(d); render(); };
+    return;
+  }
+  if (top?.screen === "chat") {
+    const d = DOGS.find((x) => x.id === top.dog);
+    const msgs = state.chats[d.id] ?? [];
+    header.innerHTML = `<button id="back" aria-label="Back">‹ Back</button><h1>${esc(d.name)}</h1>`;
+    main.innerHTML = `<div class="messages">${msgs.map((m) => `<div class="bubble" data-testid="message-bubble">${esc(m)}</div>`).join("")}</div>`;
+    $("#composer-slot").innerHTML = `<div class="composer"><input id="chat-input" placeholder="Message" value="${esc(state.draft)}"><button id="send-button">Send</button></div>`;
+    const input = $("#chat-input");
+    const send = $("#send-button");
+    const sync = () => { send.disabled = input.value.trim() === ""; };
+    input.oninput = () => { state.draft = input.value; sync(); };
+    input.onkeydown = (e) => { if (e.key === "Enter" && !send.disabled) send.click(); };
+    send.onclick = () => { (state.chats[d.id] ??= []).push(input.value); state.draft = ""; render(); };
+    sync();
+    $("#back").onclick = () => { state.stack.pop(); state.draft = ""; render(); };
+    return;
+  }
+  if (state.tab === "discover") {
+    header.innerHTML = `<h1>Discover</h1>`;
+    const d = DOGS[state.index];
+    if (!d) {
+      main.innerHTML = `<p class="empty">No more dogs nearby</p><button id="start-over-button">Start over</button>`;
+      $("#start-over-button").onclick = () => { state.index = 0; render(); };
+      return;
+    }
+    main.innerHTML = `<button class="card" id="dog-card" aria-label="🐶, ${esc(d.name)}, ${esc(d.name)}, ${d.age}, ${esc(d.breed)}, ${d.km} km away">
+        <div class="art" style="background:${d.colour}"><span class="emoji">🐶</span>${esc(d.name)}</div>
+        <p>${esc(d.name)}, ${d.age}</p><p>${esc(d.breed)}</p><p>${d.km} km away</p></button>
+      <div class="actions"><button id="nope-button">Nope</button><button id="like-button">Like</button></div>`;
+    $("#dog-card").onclick = () => { state.stack.push({ screen: "profile", dog: d.id }); render(); };
+    $("#nope-button").onclick = () => { state.index++; render(); };
+    $("#like-button").onclick = () => { like(d); render(); };
+  } else if (state.tab === "matches") {
+    header.innerHTML = `<h1>Matches</h1>`;
+    main.innerHTML = state.matches.length
+      ? state.matches.map((id) => { const d = DOGS.find((x) => x.id === id); return `<button class="row" id="match-row-${d.id}"><span class="mini" style="background:${d.colour}"></span><span>${esc(d.name)}<br><small>${esc(d.breed)}</small></span></button>`; }).join("")
+      : `<p class="empty">No matches yet. Keep swiping!</p>`;
+    for (const id of state.matches) $(`#match-row-${id}`).onclick = () => { state.stack.push({ screen: "chat", dog: id }); render(); };
+  } else {
+    header.innerHTML = `<h1>Settings</h1>`;
+    main.innerHTML = `
+      <div class="settings-row"><span>Max distance</span><span id="distance-value">${state.distance} mi</span>
+        <span class="stepper"><button id="distance-minus" aria-label="Decrement">−</button> <button id="distance-plus" aria-label="Increment">+</button></span></div>
+      <div class="settings-row"><label for="notifications-toggle">Notifications</label><input type="checkbox" role="switch" id="notifications-toggle" aria-label="Notifications" ${state.notifications ? "checked" : ""}></div>
+      <div class="settings-row"><span>Show me</span><span class="segments">
+        <button id="show-me-puppies" aria-pressed="${state.showMe === "puppies"}">Puppies</button>
+        <button id="show-me-adults" aria-pressed="${state.showMe === "adults"}">Adults</button>
+        <button id="show-me-all" aria-pressed="${state.showMe === "all"}">All</button></span></div>
+      <button id="reset-swipes-button">Reset swipes</button>`;
+    $("#distance-minus").onclick = () => { state.distance = Math.max(1, state.distance - 1); render(); };
+    $("#distance-plus").onclick = () => { state.distance = Math.min(50, state.distance + 1); render(); };
+    $("#notifications-toggle").onchange = (e) => { state.notifications = e.target.checked; };
+    for (const v of ["puppies", "adults", "all"]) $(`#show-me-${v}`).onclick = () => { state.showMe = v; render(); };
+    $("#reset-swipes-button").onclick = () => { state.index = 0; state.matches = []; state.chats = {}; render(); };
+  }
+}
+
+for (const t of ["discover", "matches", "settings"]) $(`#tab-${t}`).onclick = () => { state.tab = t; state.stack = []; render(); };
+$("#keep-swiping").onclick = () => $("#match-dialog").close();
+$("#say-hi").onclick = () => { $("#match-dialog").close(); state.tab = "matches"; state.stack = []; render(); };
+render();
+</script>
+</body>
+</html>

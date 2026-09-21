@@ -10,9 +10,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_FILE, DEFAULT_CONFIG } from "./config.js";
-import type { CrossmatchConfig } from "./types.js";
+import { DEFAULT_PAIR, type CrossmatchConfig, type Pair } from "./types.js";
 
-export interface InitOptions { argent: boolean; force: boolean; scan: boolean; log: (s: string) => void }
+export interface InitOptions {
+  argent: boolean;
+  force: boolean;
+  scan: boolean;
+  /** The platforms to compare (default ios and android). */
+  platforms?: Pair;
+  /** The web app's URL, when web is one of the platforms. */
+  webUrl?: string;
+  log: (s: string) => void;
+}
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -137,26 +146,36 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   if (fs.existsSync(configPath) && !opts.force) {
     ok(`${CONFIG_FILE} already exists (kept; --force overwrites)`);
   } else {
+    const pair = opts.platforms ?? DEFAULT_PAIR;
+    const native = pair.filter((s) => s !== "web");
     let found: ReturnType<typeof detectApps> = {};
-    if (!opts.scan) log("  app scan skipped (--no-scan); fill in the app paths later");
+    if (!native.length) log("  no native platform to look for apps for");
+    else if (!opts.scan) log("  app scan skipped (--no-scan); fill in the app paths later");
     else if (root === home) log("  app scan skipped in the home directory; fill in the app paths later");
     else {
       log("  looking for built apps (.app bundles and .apk files) under the project (a few seconds at most)…");
       found = detectApps(root);
-      log(`  iOS app: ${found.ios ? found.ios.app : "none found"}${found.ios?.bundleId ? ` (${found.ios.bundleId})` : ""}`);
-      log(`  Android app: ${found.android ? found.android.app : "none found"}${found.android?.bundleId ? ` (${found.android.bundleId})` : ""}`);
+      if (pair.includes("ios")) log(`  iOS app: ${found.ios ? found.ios.app : "none found"}${found.ios?.bundleId ? ` (${found.ios.bundleId})` : ""}`);
+      if (pair.includes("android")) log(`  Android app: ${found.android ? found.android.app : "none found"}${found.android?.bundleId ? ` (${found.android.bundleId})` : ""}`);
     }
     const config: CrossmatchConfig = {
       ...DEFAULT_CONFIG,
+      platforms: pair,
+      web: { ...DEFAULT_CONFIG.web, ...(opts.webUrl ? { url: opts.webUrl } : {}) },
       ios: { app: found.ios?.app ?? DEFAULT_CONFIG.ios.app, bundleId: found.ios?.bundleId ?? DEFAULT_CONFIG.ios.bundleId },
       android: { app: found.android?.app ?? DEFAULT_CONFIG.android.app, bundleId: found.android?.bundleId ?? DEFAULT_CONFIG.android.bundleId },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
     ok(`${CONFIG_FILE} written`);
-    if (!found.ios) later(`when you have a simulator build, set ios.app (the .app) and ios.bundleId in ${CONFIG_FILE}`);
-    else if (!found.ios.bundleId) later(`set ios.bundleId in ${CONFIG_FILE}`);
-    if (!found.android) later(`when you have an Android build, set android.app (the .apk) and android.bundleId in ${CONFIG_FILE}`);
-    else if (!found.android.bundleId) later(`set android.bundleId in ${CONFIG_FILE}`);
+    if (pair.includes("ios")) {
+      if (!found.ios) later(`when you have a simulator build, set ios.app (the .app) and ios.bundleId in ${CONFIG_FILE}`);
+      else if (!found.ios.bundleId) later(`set ios.bundleId in ${CONFIG_FILE}`);
+    }
+    if (pair.includes("android")) {
+      if (!found.android) later(`when you have an Android build, set android.app (the .apk) and android.bundleId in ${CONFIG_FILE}`);
+      else if (!found.android.bundleId) later(`set android.bundleId in ${CONFIG_FILE}`);
+    }
+    if (pair.includes("web") && !opts.webUrl) later(`set web.url in ${CONFIG_FILE} to the address your web app is served at`);
   }
 
   // 2. skill
@@ -201,5 +220,5 @@ export async function runInit(cwd: string, opts: InitOptions): Promise<void> {
   log("\nSummary");
   for (const d of done) log(`  ✓ ${d}`);
   for (const t of todo) log(`  · ${t}`);
-  log(`\nNext: \`crossmatch doctor\` (checks the toolchain; the apps can come later), then \`crossmatch setup\` once both builds are in ${CONFIG_FILE}, then ask your agent to explore both apps with the crossmatch skill and run \`crossmatch compare\`.`);
+  log(`\nNext: \`crossmatch doctor\` (checks the toolchain; the apps can come later), then \`crossmatch setup\` once both apps are in ${CONFIG_FILE}, then ask your agent to explore both apps with the crossmatch skill and run \`crossmatch compare\`.`);
 }

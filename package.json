@@ -1,7 +1,7 @@
 {
   "name": "crossmatch",
   "version": "0.1.2",
-  "description": "Find and document behavioural differences between an iOS app and its Android twin, using Argent.",
+  "description": "Find and document behavioural differences between an iOS app, its Android twin and its web app, using Argent.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "testing",
     "simulator",
     "emulator",
+    "web",
     "claude-code"
   ],
   "type": "module",

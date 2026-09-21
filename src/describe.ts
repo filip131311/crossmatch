@@ -84,7 +84,32 @@ const ROLE_MAP: Array<[RegExp, Role]> = [
   [/Group|Layout|Screen|View|Container|Column|Frame|Compose|Window/i, "container"],
 ];
 
+/**
+ * Web roles: Argent's Chromium tree reports the ARIA role, else the lowercase tag name. Native roles
+ * are never all lowercase, so the two maps cannot collide.
+ */
+const WEB_ROLE_MAP: Array<[RegExp, Role]> = [
+  [/^(button|a|link|menuitem|menuitemcheckbox|menuitemradio|option|select|summary)$/, "button"],
+  [/^(input|textarea|textbox|searchbox|combobox|spinbutton)$/, "textfield"],
+  [/^(img|svg|image|picture|video|canvas|figure)$/, "image"],
+  [/^switch$/, "switch"],
+  [/^(checkbox|radio)$/, "checkbox"],
+  [/^(slider|progressbar|meter)$/, "slider"],
+  [/^(tab|tablist)$/, "tab"],
+  [/^(h[1-6]|heading)$/, "heading"],
+  [/^(ul|ol|dl|list|listbox|table|grid|tree|menu|menubar)$/, "list"],
+  [/^(li|listitem|tr|row|td|th|cell|gridcell|treeitem)$/, "cell"],
+  [/^(dialog|alertdialog|alert)$/, "alert"],
+  [/^(p|span|label|strong|em|b|i|small|code|pre|blockquote|time|dt|dd|caption|legend|text|status|note)$/, "text"],
+];
+
 export function normaliseRole(raw: string, flags: string[]): Role {
+  if (/^[a-z][a-z0-9-]*$/.test(raw)) {
+    // an input that can be checked is a checkbox or radio; a clickable wrapper is a button
+    if (flags.includes("checkable") || (flags.includes("checked") && raw === "input")) return "checkbox";
+    for (const [re, role] of WEB_ROLE_MAP) if (re.test(raw)) return role;
+    return flags.includes("clickable") ? "button" : "container";
+  }
   // Compose exposes buttons as clickable generic Views; treat a clickable container as a button
   if (flags.includes("clickable") && /View$|Layout|Group|Compose|^View$/i.test(raw) && !/Scroll|List|Recycler/i.test(raw)) return "button";
   for (const [re, role] of ROLE_MAP) if (re.test(raw)) return role;

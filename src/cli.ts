@@ -3,7 +3,7 @@ import { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { argentVersion, connectArgent } from "./argent.js";
+import { connectArgent } from "./argent.js";
 import { ffmpegBin } from "./ffmpeg.js";
 import { CONFIG_FILE, flowsDir, loadConfig, outDir, parsePlatforms, resolveFrom, type LoadedConfig } from "./config.js";
 import { runInit } from "./init.js";
@@ -70,8 +70,8 @@ program
     let ok = true;
     const fail = (s: string) => { ok = false; console.log(`✗ ${s}`); };
     const pass = (s: string) => console.log(`✓ ${s}`);
-    const ver = await argentVersion();
-    ver ? pass(`argent ${ver}`) : fail("argent CLI not found (npm i -g @swmansion/argent, or set CROSSMATCH_ARGENT_BIN)");
+    const argent = await connectArgent().catch((e) => void fail(e instanceof Error ? e.message : String(e)));
+    if (argent) pass(`argent ${argent.install.version ?? "(unknown version)"} at ${argent.install.dir}`);
     try {
       pass(`ffmpeg with libx264: ${ffmpegBin()}`);
       const onPath = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], { encoding: "utf8" });
@@ -104,10 +104,8 @@ program
       const app = resolveFrom(loaded.root, loaded.config[side].app);
       fs.existsSync(app) ? pass(`${side} app ${app}`) : fail(`${side} app not found: ${app}`);
     }
-    try {
-      const client = await connectArgent();
-      pass(`argent transport: ${client.describeTransport()}`);
-      const { devices } = await listDevices(client);
+    if (argent) try {
+      const { devices } = await listDevices(argent);
       const booted = devices.filter((d: any) => d.state === "Booted" || d.state === "device" || d.state === "Running");
       pass(`${devices.length} devices known, ${booted.length} booted: ${booted.map((d: any) => `${d.platform}:${d.name ?? d.avdName ?? d.udid ?? d.serial}`).join(", ") || "none"}`);
     } catch (e) {

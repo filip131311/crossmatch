@@ -50,7 +50,16 @@
     "commander": "^13.1.0",
     "yaml": "^2.7.0"
   },
+  "peerDependencies": {
+    "@swmansion/argent": ">=0.26.1-next.13"
+  },
+  "peerDependenciesMeta": {
+    "@swmansion/argent": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@swmansion/argent": "0.26.1-next.13",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
   }

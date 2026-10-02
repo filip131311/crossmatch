@@ -1,249 +1,91 @@
 /**
- * Thin client for the Argent tool-server. Two transports:
- *  - HTTP to a running tool-server (fast; discovered from ~/.argent/tool-server*.json or env vars)
- *  - the `argent run <tool> --json` CLI (fallback; always works when argent is installed)
- * Every device-touching Argent tool takes the device id in `udid`, on both platforms.
+ * Argent through its Node client (`@swmansion/argent/client`). The client talks to the same
+ * tool-server as the `argent` CLI and Argent's MCP server, starts it when none runs, and honours
+ * `argent link` / ARGENT_TOOLS_URL. Every device-touching Argent tool takes the device id in `udid`,
+ * on both platforms.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
-
-export interface ArgentArtifact {
-  __argentArtifact: true;
-  id: string;
-  kind: string;
-  filename: string;
-  mimeType: string;
-  size?: number;
-  hostPath?: string;
-}
-
-export class ArgentError extends Error {
-  constructor(message: string, public tool: string, public code?: string) {
-    super(message);
-  }
-}
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type * as ArgentSdk from "@swmansion/argent/client";
 
 export interface ArgentClient {
-  transport: "http" | "cli";
+  /** Call a tool and return its result. Artifacts (screenshots, recordings) come back as local file paths. */
   call<T = any>(tool: string, args: Record<string, unknown>): Promise<T>;
-  /** Save an artifact returned by a tool to `dest` (a file path). */
-  saveArtifact(artifact: ArgentArtifact, dest: string): Promise<void>;
-  describeTransport(): string;
+  /** The Argent install the client was loaded from. */
+  install: { dir: string; version?: string };
 }
 
-export function resolveArgentBin(): string {
-  const env = process.env.CROSSMATCH_ARGENT_BIN;
-  if (env) return env;
+const CALL_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * The client of the Argent install crossmatch uses, so that crossmatch and the editor's Argent MCP
+ * server share one tool-server: CROSSMATCH_ARGENT_BIN (the path of an install's `dist/cli.js`), then
+ * the `argent` on PATH, then an `@swmansion/argent` installed next to crossmatch.
+ */
+function clientCandidates(): string[] {
+  const bins: string[] = [];
+  if (process.env.CROSSMATCH_ARGENT_BIN) bins.push(process.env.CROSSMATCH_ARGENT_BIN);
   const which = spawnSync(process.platform === "win32" ? "where" : "which", ["argent"], { encoding: "utf8" });
-  if (which.status === 0 && which.stdout.trim()) return which.stdout.trim().split("\n")[0];
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require.resolve("@swmansion/argent/package.json");
-    return path.join(path.dirname(pkg), "dist", "cli.js");
-  } catch {
-    // fall through
-  }
-  throw new Error(
-    "Cannot find the `argent` CLI. Install it (`npm i -g @swmansion/argent`) or set CROSSMATCH_ARGENT_BIN to the cli.js path.",
-  );
-}
-
-function runCli(bin: string, argv: string[], opts: { timeoutMs?: number } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const isJs = bin.endsWith(".js") || bin.endsWith(".cjs") || bin.endsWith(".mjs");
-    const child = spawn(isJs ? process.execPath : bin, isJs ? [bin, ...argv] : argv, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
-      shell: process.platform === "win32" && !isJs, // `argent.cmd` shims need a shell on Windows
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
-    const timer = opts.timeoutMs ? setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs) : undefined;
-    child.on("close", (code) => {
-      if (timer) clearTimeout(timer);
-      resolve({ code: code ?? -1, stdout, stderr });
-    });
-  });
-}
-
-/** `argent run --json` prints notes before the JSON; take the last JSON value in the output. */
-export function parseJsonTail(text: string): unknown {
-  const trimmed = text.trimEnd();
-  for (let i = trimmed.length - 1; i >= 0; i--) {
-    const ch = trimmed[i];
-    if (ch !== "}" && ch !== "]") continue;
-    // walk back to a matching opener at line start
-    const opener = ch === "}" ? "{" : "[";
-    for (let j = i; j >= 0; j--) {
-      if (trimmed[j] !== opener) continue;
-      if (j > 0 && trimmed[j - 1] !== "\n") continue;
-      try {
-        return JSON.parse(trimmed.slice(j, i + 1));
-      } catch {
-        // keep searching
-      }
-    }
-  }
-  throw new Error(`No JSON in argent output:\n${text.slice(-2000)}`);
-}
-
-class CliClient implements ArgentClient {
-  transport = "cli" as const;
-  constructor(private bin: string) {}
-  describeTransport() {
-    return `argent CLI at ${this.bin}`;
-  }
-  async call<T>(tool: string, args: Record<string, unknown>): Promise<T> {
-    const res = await runCli(this.bin, ["run", tool, "--json", "--args", JSON.stringify(args)], { timeoutMs: 15 * 60_000 });
-    if (res.code !== 0) {
-      const msg = (res.stderr || res.stdout).trim();
-      throw new ArgentError(msg.replace(/^\[Tool:[^\]]+\]\s*/, ""), tool);
-    }
-    return parseJsonTail(res.stdout) as T;
-  }
-  async saveArtifact(artifact: ArgentArtifact, dest: string): Promise<void> {
-    if (artifact.hostPath && fs.existsSync(artifact.hostPath)) {
-      fs.copyFileSync(artifact.hostPath, dest);
-      return;
-    }
-    throw new Error(`Artifact ${artifact.filename} has no readable hostPath`);
-  }
-}
-
-interface ServerRecord { url: string; token?: string; pid?: number; file: string }
-
-function readServerRecords(): ServerRecord[] {
-  const out: ServerRecord[] = [];
-  const envUrl = process.env.ARGENT_TOOLS_URL;
-  if (envUrl) out.push({ url: envUrl.replace(/\/$/, ""), token: process.env.ARGENT_AUTH_TOKEN, file: "env" });
-  const dir = path.join(os.homedir(), ".argent");
-  if (!fs.existsSync(dir)) return out;
-  for (const name of fs.readdirSync(dir)) {
-    if (!name.startsWith("tool-server") || !name.endsWith(".json")) continue;
+  if (which.status === 0 && which.stdout.trim()) bins.push(which.stdout.trim().split("\n")[0]);
+  const out: string[] = [];
+  for (const bin of bins) {
     try {
-      const rec = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-      if (typeof rec.port !== "number") continue;
-      if (typeof rec.pid === "number") {
-        try {
-          process.kill(rec.pid, 0);
-        } catch {
-          continue; // dead
-        }
-      }
-      out.push({ url: `http://${rec.host ?? "127.0.0.1"}:${rec.port}`, token: rec.token, pid: rec.pid, file: name });
+      const client = path.join(path.dirname(fs.realpathSync(bin)), "client.js");
+      if (fs.existsSync(client)) out.push(pathToFileURL(client).href);
     } catch {
-      // ignore
+      // a dangling bin: skip it
     }
   }
-  // prefer the CLI-managed server on 3001, then most recently started
-  out.sort((a, b) => (a.url.endsWith(":3001") ? -1 : 0) - (b.url.endsWith(":3001") ? -1 : 0));
+  out.push("@swmansion/argent/client");
   return out;
 }
 
-class HttpClient implements ArgentClient {
-  transport = "http" as const;
-  constructor(private rec: ServerRecord) {}
-  describeTransport() {
-    return `tool-server ${this.rec.url} (${this.rec.file})`;
-  }
-  private headers() {
-    const h: Record<string, string> = { "content-type": "application/json" };
-    if (this.rec.token) h.authorization = `Bearer ${this.rec.token}`;
-    return h;
-  }
-  async ping(): Promise<boolean> {
+async function loadSdk(): Promise<{ sdk: typeof ArgentSdk; dir: string }> {
+  for (const specifier of clientCandidates()) {
     try {
-      const res = await fetch(`${this.rec.url}/tools`, { headers: this.headers(), signal: AbortSignal.timeout(3000) });
-      return res.ok;
+      const sdk: typeof ArgentSdk = await import(specifier);
+      // <install>/dist/client.js
+      const file = fileURLToPath(specifier.startsWith("file:") ? specifier : import.meta.resolve(specifier));
+      return { sdk, dir: path.dirname(path.dirname(file)) };
     } catch {
-      return false;
+      // try the next one
     }
   }
-  async call<T>(tool: string, args: Record<string, unknown>): Promise<T> {
-    const res = await fetch(`${this.rec.url}/tools/${tool}`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(args),
-      signal: AbortSignal.timeout(15 * 60_000),
-    });
-    const text = await res.text();
-    let body: any;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      throw new ArgentError(`Non-JSON response from tool-server (${res.status}): ${text.slice(0, 500)}`, tool);
-    }
-    if (body && typeof body === "object" && "error" in body) {
-      const msg = typeof body.error === "string" ? body.error : JSON.stringify(body.error);
-      throw new ArgentError(msg.replace(/^\[Tool:[^\]]+\]\s*/, ""), tool, body.error_code);
-    }
-    if (!res.ok) throw new ArgentError(`HTTP ${res.status}: ${text.slice(0, 500)}`, tool);
-    return (body && typeof body === "object" && "data" in body ? body.data : body) as T;
-  }
-  async saveArtifact(artifact: ArgentArtifact, dest: string): Promise<void> {
-    if (artifact.hostPath && fs.existsSync(artifact.hostPath)) {
-      fs.copyFileSync(artifact.hostPath, dest);
-      return;
-    }
-    const res = await fetch(`${this.rec.url}/artifacts/${artifact.id}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`Cannot download artifact ${artifact.id}: HTTP ${res.status}`);
-    fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
-  }
+  throw new Error(
+    "Cannot load Argent's Node client (@swmansion/argent/client, Argent 0.26.1 or newer). Install or update Argent (`npm i -g @swmansion/argent@latest`) or set CROSSMATCH_ARGENT_BIN to the cli.js of an install.",
+  );
 }
 
-let cached: ArgentClient | undefined;
-
-/**
- * Connect to Argent. Tries a running tool-server over HTTP first; if none answers, starts one
- * through the CLI (`argent server start`) and retries; finally falls back to the CLI per call.
- */
-export async function connectArgent(opts: { prefer?: "http" | "cli" } = {}): Promise<ArgentClient> {
-  if (cached) return cached;
-  const prefer = opts.prefer ?? (process.env.CROSSMATCH_ARGENT_TRANSPORT as "http" | "cli" | undefined) ?? "http";
-  const bin = resolveArgentBin();
-  if (prefer === "http") {
-    for (const rec of readServerRecords()) {
-      const c = new HttpClient(rec);
-      if (await c.ping()) return (cached = c);
-    }
-    // no server answering: ask the CLI to start one in the background, then look again
-    const started = await runCli(bin, ["server", "start", "--detach"], { timeoutMs: 30_000 }).catch(() => undefined);
-    if (started && started.code !== 0) console.error(`argent server start --detach: ${(started.stderr || started.stdout).trim().slice(0, 300)}`);
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      for (const rec of readServerRecords()) {
-        const c = new HttpClient(rec);
-        if (await c.ping()) return (cached = c);
-      }
-    }
-  }
-  if (prefer === "http") console.error("No Argent tool-server answered; using the slower `argent run` CLI transport for every call.");
-  return (cached = new CliClient(bin));
-}
-
-export async function argentVersion(): Promise<string | undefined> {
+function installVersion(dir: string): string | undefined {
   try {
-    const res = await runCli(resolveArgentBin(), ["--version"], { timeoutMs: 20_000 });
-    return res.stdout.trim() || undefined;
+    return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version;
   } catch {
     return undefined;
   }
 }
 
-export async function argentCli(argv: string[], opts: { cwd?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-  const bin = resolveArgentBin();
-  const isJs = bin.endsWith(".js") || bin.endsWith(".cjs");
-  return new Promise((resolve) => {
-    const child = spawn(isJs ? process.execPath : bin, isJs ? [bin, ...argv] : argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+let cached: Promise<ArgentClient> | undefined;
+
+/** Connect to Argent. The tool-server starts on the first call when none runs. */
+export function connectArgent(): Promise<ArgentClient> {
+  cached ??= loadSdk().then(({ sdk, dir }) => {
+    const client = sdk.createArgentClient();
+    return {
+      install: { dir, version: installVersion(dir) },
+      async call<T>(tool: string, args: Record<string, unknown>): Promise<T> {
+        try {
+          const res = await client.callTool<T>(tool, args, { signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+          return res.data;
+        } catch (e) {
+          // tool errors read "[Tool:<id>] message"; the tool is known here
+          if (e instanceof Error) e.message = e.message.replace(/^\[Tool:[^\]]+\]\s*/, "");
+          throw e;
+        }
+      },
+    };
   });
+  cached.catch(() => (cached = undefined));
+  return cached;
 }

@@ -28,7 +28,7 @@ crossmatch setup         # boot both devices, install both apps fresh
 Then ask your coding agent to explore both apps; it writes one flow per feature and runs
 `crossmatch compare`, which judges, renders the videos and writes `crossmatch-out/report/index.html`.
 
-**Needs:** macOS · Node 20+ · Xcode and the Android SDK · ffmpeg with libx264 · Argent 0.25+ · Claude Code (for the judge).
+**Needs:** macOS · Node 20+ · Xcode and the Android SDK · ffmpeg with libx264 · Argent 0.26.1+ · Claude Code (for the judge).
 For a web side: Google Chrome and Node 22+ (`"platforms": ["ios", "web"]` in the config).
 
 **Read next**

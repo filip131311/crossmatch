@@ -43,7 +43,7 @@ crossmatch screen <name> --note "what it is"    # register a screen you reached 
 ```
 
 `crossmatch argent` returns the tool's raw result only: a tap does **not** come back with a screenshot,
-so take one with `crossmatch argent screenshot` (the result's `hostPath` is a PNG you can view). The
+so take one with `crossmatch argent screenshot` (the result's `image` is the path of a PNG you can view). The
 `@(x, y)` at the end of every `describe` line is the tap centre in the same 0–1 space. The device id
 is injected; `bundleId` is injected for app-scoped tools (launch-app, restart-app, reinstall-app,
 describe, await-ui-element).

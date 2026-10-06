@@ -31,7 +31,11 @@ Every command takes `-p, --platforms <a,b>` to override the configured pair for 
   first on PATH before Argent's tool-server starts), Xcode (simctl), Android SDK (adb, emulator).
 - For the web side: Google Chrome (or another Chromium browser via `web.browser` / `CROSSMATCH_CHROME`)
   and Node 22+. Xcode or the Android SDK are only needed for the platforms you compare.
-- Argent 0.25+ on PATH (`npm i -g @swmansion/argent`) or `CROSSMATCH_ARGENT_BIN=/path/to/cli.js`.
+- Argent 0.27.0+ on PATH (`npm i -g @swmansion/argent`), installed next to crossmatch, or picked with
+  `CROSSMATCH_ARGENT_BIN=/path/to/cli.js` (then only that install is used). crossmatch calls Argent
+  through its Node client (`@swmansion/argent/client`), on the same tool-server as that install's CLI
+  and MCP server; `ARGENT_TOOLS_URL` / `argent link` point it at another one. If the `argent` on PATH
+  is older than 0.27.0, crossmatch warns and uses the install next to it, which runs its own tool-server.
 - Claude Code CLI for the LLM judge (optional; without it every candidate is reported with a
   rule-based verdict for a human to review).
 

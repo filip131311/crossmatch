@@ -6,13 +6,23 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { ArgentClient, ArgentArtifact } from "./argent.js";
+import type { ArgentClient } from "./argent.js";
 import { ScreencastRecorder, clearSiteData, historyBack } from "./cdp.js";
 import { centre, parseDescribe, resolveSelector, selectorMatches, describeSelector } from "./describe.js";
 import type { Device } from "./devices.js";
 import type { Condition, Directive, FlowStep, Selector, Side, StepSideResult, UiNode, UiTree, WebConfig } from "./types.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function moveFile(from: string, to: string): void {
+  try {
+    fs.renameSync(from, to);
+  } catch {
+    // another volume
+    fs.copyFileSync(from, to);
+    fs.rmSync(from, { force: true });
+  }
+}
 
 export class StepFailure extends Error {}
 
@@ -74,9 +84,9 @@ export class SideSession {
 
   async screenshot(file: string, scale = 0.5): Promise<string> {
     // Argent only downscales Chromium screenshots with the optional `sharp` package installed
-    const res = await this.call<{ image: ArgentArtifact }>("screenshot", { ...(this.side === "web" ? {} : { scale }), includeImageInContext: false });
-    const dest = path.join(this.opts.runDir, file);
-    await this.client.saveArtifact(res.image, dest);
+    const res = await this.call<{ image: string | null }>("screenshot", { ...(this.side === "web" ? {} : { scale }), includeImageInContext: false });
+    if (!res.image) throw new Error("Argent returned no screenshot file");
+    fs.copyFileSync(res.image, path.join(this.opts.runDir, file));
     return file;
   }
 
@@ -134,10 +144,10 @@ export class SideSession {
       const durationMs = await screencast.stop(path.join(this.opts.runDir, `${this.side}.mp4`));
       return { file: `${this.side}.mp4`, durationMs };
     }
-    const res = await this.call<{ video: string | ArgentArtifact; durationMs: number }>("screen-recording-stop", {});
-    const dest = path.join(this.opts.runDir, `${this.side}.mp4`);
-    if (typeof res.video === "string") fs.copyFileSync(res.video, dest);
-    else await this.client.saveArtifact(res.video, dest);
+    const res = await this.call<{ video: string | null; durationMs: number }>("screen-recording-stop", {});
+    if (!res.video) throw new Error("Argent returned no recording file");
+    // the client saved its own copy of the recording (Argent's recordings directory): move it
+    moveFile(res.video, path.join(this.opts.runDir, `${this.side}.mp4`));
     return { file: `${this.side}.mp4`, durationMs: res.durationMs };
   }
 

@@ -17,16 +17,36 @@ interface ListedDevice {
   state?: string;
   runtimeKind?: string;
   port?: number;
+  kind?: string;
   avds?: Array<{ name: string }>;
 }
 
-export async function listDevices(client: ArgentClient): Promise<{ devices: ListedDevice[]; avds: string[] }> {
-  const res = await client.call<any>("list-devices", {});
-  const devices: ListedDevice[] = res.devices ?? [];
+/**
+ * Split a `list-devices` result into devices and bootable AVD names, for every Argent version:
+ * - up to 0.34: AVDs come in a top-level `avds` array of `{ name }`, running ones included;
+ * - later: an AVD that does not run is a device entry with `kind: "avd"` and an `avdName`, and no
+ *   serial. It goes to `avds`, not `devices`, so callers see the same shape either way.
+ */
+export function parseDeviceList(res: any): { devices: ListedDevice[]; avds: string[] } {
+  const devices: ListedDevice[] = [];
   const avds: string[] = [];
-  for (const d of devices) if (Array.isArray(d.avds)) for (const a of d.avds) avds.push(a.name);
-  if (Array.isArray(res.avds)) for (const a of res.avds) avds.push(typeof a === "string" ? a : a.name);
+  const addAvd = (name: unknown) => {
+    if (typeof name === "string" && name && !avds.includes(name)) avds.push(name);
+  };
+  for (const d of (res?.devices ?? []) as ListedDevice[]) {
+    if (d.kind === "avd") {
+      addAvd(d.avdName);
+      continue;
+    }
+    devices.push(d);
+    if (Array.isArray(d.avds)) for (const a of d.avds) addAvd(a.name);
+  }
+  if (Array.isArray(res?.avds)) for (const a of res.avds) addAvd(typeof a === "string" ? a : a?.name);
   return { devices, avds };
+}
+
+export async function listDevices(client: ArgentClient): Promise<{ devices: ListedDevice[]; avds: string[] }> {
+  return parseDeviceList(await client.call<any>("list-devices", {}));
 }
 
 function isBooted(d: ListedDevice): boolean {
